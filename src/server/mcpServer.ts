@@ -3,6 +3,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { z } from 'zod';
 import { TaskManager, TaskInfo, TaskInputDefinition } from '../tasks/taskManager';
+import { LaunchManager, LaunchInfo, LaunchInputDefinition } from '../launch/launchManager';
+
+type InputDefinition = TaskInputDefinition | LaunchInputDefinition;
 
 export class MCPServer {
   private server: http.Server | null = null;
@@ -10,18 +13,20 @@ export class MCPServer {
   private transports: Map<string, SSEServerTransport> = new Map();
   private port: number;
   private taskManager: TaskManager;
+  private launchManager: LaunchManager;
 
-  constructor(taskManager: TaskManager, port: number) {
+  constructor(taskManager: TaskManager, launchManager: LaunchManager, port: number) {
     this.taskManager = taskManager;
+    this.launchManager = launchManager;
     this.port = port;
     this.mcpServer = new McpServer({
-      name: 'vscode-tasks',
+      name: 'ignition-mcp',
       version: '0.1.0'
     });
   }
 
-  private sanitizeToolName(taskName: string): string {
-    return 'task_' + taskName
+  private sanitizeToolName(name: string, prefix: string): string {
+    return prefix + name
       .toLowerCase()
       .replace(/[^a-z0-9_-]/g, '_')
       .replace(/_+/g, '_')
@@ -31,6 +36,7 @@ export class MCPServer {
   private async registerTools() {
     this.registerUtilityTools();
     await this.registerTaskTools();
+    await this.registerLaunchTools();
   }
 
   private registerUtilityTools() {
@@ -90,6 +96,54 @@ export class MCPServer {
         };
       }
     );
+    this.mcpServer.tool(
+      'list_launch_configs',
+      'List all available VS Code launch configurations from the workspace',
+      {},
+      async () => {
+        const configs = await this.launchManager.listLaunchConfigs();
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify(configs.map(c => ({
+              name: c.name,
+              type: c.type,
+              request: c.request,
+              preLaunchTask: c.preLaunchTask,
+              inputs: c.inputs
+            })), null, 2)
+          }]
+        };
+      }
+    );
+    this.mcpServer.tool(
+      'get_debug_status',
+      'Get the status of active debug sessions',
+      {},
+      async () => {
+        const status = this.launchManager.getDebugStatus();
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify(status, null, 2)
+          }]
+        };
+      }
+    );
+    this.mcpServer.tool(
+      'stop_debug_session',
+      'Stop a debug session',
+      { sessionId: z.string().optional().describe('The session ID to stop (omit to stop the active session)') },
+      async ({ sessionId }) => {
+        const result = await this.launchManager.stopDebug(sessionId);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify(result, null, 2)
+          }]
+        };
+      }
+    );
   }
 
   private async registerTaskTools() {
@@ -100,7 +154,7 @@ export class MCPServer {
     console.log(`Registered ${tasks.length} task tools`);
   }
 
-  private buildInputSchema(inputs: TaskInputDefinition[]): Record<string, z.ZodOptional<z.ZodString>> {
+  private buildInputSchema(inputs: InputDefinition[]): Record<string, z.ZodOptional<z.ZodString>> {
     const schema: Record<string, z.ZodOptional<z.ZodString>> = {};
     for (const input of inputs) {
       let zodField = z.string();
@@ -122,7 +176,7 @@ export class MCPServer {
   }
 
   private resolveInputValues(
-    inputs: TaskInputDefinition[],
+    inputs: InputDefinition[],
     providedValues: Record<string, string | undefined>
   ): { complete: boolean; values: Record<string, string> } {
     const resolved: Record<string, string> = {};
@@ -140,7 +194,7 @@ export class MCPServer {
   }
 
   private registerTaskTool(task: TaskInfo) {
-    const toolName = this.sanitizeToolName(task.name);
+    const toolName = this.sanitizeToolName(task.name, 'task_');
     const isBackground = task.isBackground;
     const description = this.buildTaskDescription(task);
     const hasInputs = task.inputs && task.inputs.length > 0;
@@ -263,6 +317,83 @@ export class MCPServer {
     return parts.join(' ');
   }
 
+  private async registerLaunchTools() {
+    const configs = await this.launchManager.listLaunchConfigs();
+    for (const config of configs) {
+      this.registerLaunchTool(config);
+    }
+    console.log(`Registered ${configs.length} launch tools`);
+  }
+
+  private registerLaunchTool(config: LaunchInfo) {
+    const toolName = this.sanitizeToolName(config.name, 'launch_');
+    const description = this.buildLaunchDescription(config);
+    const hasInputs = config.inputs && config.inputs.length > 0;
+    const inputSchema = hasInputs ? this.buildInputSchema(config.inputs!) : {};
+    this.mcpServer.tool(
+      toolName,
+      description,
+      inputSchema,
+      async (params: Record<string, string | undefined>) => {
+        let inputValues: Record<string, string> | undefined;
+        let userWillBePrompted = false;
+        if (hasInputs) {
+          const resolved = this.resolveInputValues(config.inputs!, params);
+          if (resolved.complete) {
+            inputValues = resolved.values;
+          } else {
+            inputValues = undefined;
+            userWillBePrompted = true;
+          }
+        }
+        const result = await this.launchManager.startDebug(config.name, inputValues);
+        if (!result.success) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: JSON.stringify({ error: result.error }, null, 2)
+            }],
+            isError: true
+          };
+        }
+        const response: Record<string, unknown> = {
+          status: 'started',
+          message: `Debug session "${config.name}" started.`,
+          sessionId: result.sessionId,
+          note: 'Use get_debug_status to check session state, stop_debug_session to stop.'
+        };
+        if (userWillBePrompted) {
+          response.userPrompted = true;
+          response.note = 'User will be prompted for missing input values in VS Code. Use get_debug_status to check session state.';
+        }
+        if (config.preLaunchTask) {
+          response.preLaunchTask = config.preLaunchTask;
+        }
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify(response, null, 2)
+          }]
+        };
+      }
+    );
+  }
+
+  private buildLaunchDescription(config: LaunchInfo): string {
+    const parts: string[] = [];
+    parts.push(`Start VS Code debug session "${config.name}"`);
+    parts.push(`[type: ${config.type}, request: ${config.request}]`);
+    if (config.preLaunchTask) {
+      parts.push(`(runs "${config.preLaunchTask}" first)`);
+    }
+    parts.push('(debug sessions are long-running, returns immediately)');
+    if (config.inputs && config.inputs.length > 0) {
+      const inputNames = config.inputs.map(i => i.id).join(', ');
+      parts.push(`Inputs: ${inputNames} (all optional - omit any to prompt user)`);
+    }
+    return parts.join(' ');
+  }
+
   async start(): Promise<void> {
     await this.registerTools();
     return new Promise((resolve, reject) => {
@@ -282,7 +413,7 @@ export class MCPServer {
           await this.handleMessages(req, res, url);
         } else if (url.pathname === '/health' && req.method === 'GET') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ status: 'ok', server: 'vscode-tasks-mcp' }));
+          res.end(JSON.stringify({ status: 'ok', server: 'ignition-mcp' }));
         } else {
           res.writeHead(404);
           res.end('Not found');

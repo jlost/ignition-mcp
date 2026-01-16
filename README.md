@@ -1,16 +1,20 @@
-# Tasks MCP Server
+<img src="docs/ignition-mcp-logo.jpg" alt="Ignition MCP Logo" width="150" align="right" />
 
-A VS Code extension that exposes VS Code tasks via MCP (Model Context Protocol), allowing AI assistants like Cursor to run your project's tasks.
+# 🔥 Ignition MCP
 
-## Features
+A VS Code extension that exposes tasks and launch configurations via MCP (Model Context Protocol), letting AI assistants like Cursor run your builds, tests, and debug sessions.
 
-- **MCP Server**: Runs an HTTP/SSE MCP server in the background
-- **Task Execution**: Run any VS Code task (from tasks.json) via MCP
-- **Output Capture**: Get real-time task output
-- **Task Management**: List, run, cancel, and monitor task status
-- **Auto-Configuration**: One-click setup for Cursor
+## ✨ Features
 
-## Installation
+- 🌐 **MCP Server**: Runs an HTTP/SSE MCP server in the background
+- ⚡ **Task Execution**: Run any VS Code task (from tasks.json) via MCP
+- 🐛 **Debug Sessions**: Start any VS Code launch configuration (from launch.json) via MCP
+- 📤 **Output Capture**: Get real-time task output
+- 📋 **Task Management**: List, run, cancel, and monitor task status
+- 🎯 **Debug Management**: List, start, and stop debug sessions
+- 🔧 **Auto-Configuration**: One-click setup for Cursor
+
+## 📦 Installation
 
 ### From Source
 
@@ -23,12 +27,16 @@ A VS Code extension that exposes VS Code tasks via MCP (Model Context Protocol),
    ```bash
    npm run build
    ```
-4. Install in VS Code/Cursor:
+4. Package the extension:
+   ```bash
+   npx vsce package
+   ```
+5. Install in VS Code/Cursor:
    - Open the Extensions view
    - Click "..." menu -> "Install from VSIX..."
-   - Select the generated `.vsix` file (run `npx vsce package` first)
+   - Select the generated `.vsix` file
 
-### Development
+### 🛠️ Development
 
 1. Install dependencies:
    ```bash
@@ -45,45 +53,40 @@ A VS Code extension that exposes VS Code tasks via MCP (Model Context Protocol),
 
 5. Press Ctrl+Shift+F5 (or Cmd+Shift+F5 on Mac) to reload the extension
 
-## Usage
+## 🚀 Usage
 
 ### Starting the Server
 
-The MCP server starts automatically when VS Code opens (configurable). You can also:
-
-1. Open Command Palette (Ctrl/Cmd + Shift + P)
-2. Run "Tasks MCP: Enable Server"
+The MCP server starts automatically when VS Code opens.
 
 ### Configuring Cursor
 
 The extension **automatically configures** `~/.cursor/mcp.json` when the server starts. On first run, you'll need to restart Cursor to pick up the new MCP server.
 
-You can also manually configure by running "Tasks MCP: Configure Cursor" from the Command Palette, or add to `~/.cursor/mcp.json`:
+You can also manually configure by running "Ignition MCP: Configure Cursor" from the Command Palette, or add to `~/.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
-    "vscode-tasks": {
+    "ignition-mcp": {
       "url": "http://localhost:3500/sse"
     }
   }
 }
 ```
 
-### Available Commands
+### 🎮 Available Commands
 
 | Command | Description |
 |---------|-------------|
-| Tasks MCP: Enable Server | Start the MCP server |
-| Tasks MCP: Disable Server | Stop the MCP server |
-| Tasks MCP: Configure Cursor | Add to Cursor's mcp.json |
-| Tasks MCP: Show Status | Show server status and options |
+| Ignition MCP: Configure Cursor | Update Cursor's mcp.json |
+| Ignition MCP: Show Status | Show server status and options |
 
-## MCP Tools
+## 🔌 MCP Tools
 
-Each VS Code task is exposed as its own tool, plus utility tools for task management.
+Each VS Code task and launch configuration is exposed as its own tool, plus utility tools for management.
 
-### Dynamic Task Tools
+### ⚡ Dynamic Task Tools
 
 Each task defined in your workspace becomes a tool named `task_<sanitized_name>`. For example:
 - Task "Build" -> tool `task_build`
@@ -98,7 +101,24 @@ Each task defined in your workspace becomes a tool named `task_<sanitized_name>`
 - If **any input is missing**, VS Code prompts the user for the missing values
 - This allows the AI to provide what it knows and defer to the user for the rest
 
-### Utility Tools
+### 🐛 Dynamic Launch Tools
+
+Each launch configuration defined in your workspace becomes a tool named `launch_<sanitized_name>`. For example:
+- Config "Launch Program" -> tool `launch_launch_program`
+- Config "Attach to Chrome" -> tool `launch_attach_to_chrome`
+
+**All launch tools are background** (debug sessions are long-running):
+- Returns immediately with a `sessionId`
+- Use `get_debug_status` to check active sessions
+- Use `stop_debug_session` to stop debugging
+
+**Launch inputs** work the same as task inputs:
+- All inputs are optional parameters
+- Omit any input to have VS Code prompt the user
+
+**Pre-launch tasks** are handled automatically by VS Code when the debug session starts.
+
+### 📋 Task Utility Tools
 
 #### list_tasks
 
@@ -135,17 +155,42 @@ Cancel a running task.
 
 **Returns**: Object with success status.
 
-## Configuration
+### 🎯 Launch Utility Tools
+
+#### list_launch_configs
+
+List all available VS Code launch configurations with their metadata.
+
+**Parameters**: None
+
+**Returns**: Array of config objects with name, type, request, preLaunchTask, and inputs.
+
+#### get_debug_status
+
+Get the status of active debug sessions.
+
+**Parameters**: None
+
+**Returns**: Object with array of active sessions (id, name, type, status, startTime).
+
+#### stop_debug_session
+
+Stop a debug session.
+
+**Parameters**:
+- `sessionId` (string, optional): The session ID to stop. If omitted, stops the active session.
+
+**Returns**: Object with success status.
+
+## ⚙️ Configuration
 
 Configure the extension in VS Code settings:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `tasks-mcp.port` | 3500 | Port for the MCP server |
-| `tasks-mcp.autoStart` | true | Start server when VS Code opens |
-| `tasks-mcp.removeConfigOnStop` | false | Remove entry from mcp.json when server stops |
+| `ignition-mcp.port` | 3500 | Port for the MCP server |
 
-## Example Workflow
+## 📖 Example Workflow
 
 1. Define tasks in `.vscode/tasks.json`:
    ```json
@@ -179,25 +224,21 @@ Configure the extension in VS Code settings:
    }
    ```
 
-2. Start the MCP server (auto-starts by default)
+2. Restart Cursor once to pick up the auto-configured MCP server
 
-3. Configure Cursor using the command
-
-4. Ask Cursor to run tasks:
+3. Ask Cursor to run tasks or start debugging:
    - "Run the Build task"
    - "List all available tasks"
    - "Run tests and show me the output"
    - "Run the lint script" (Cursor will use the Run Script task with scriptName="lint")
+   - "Start debugging the app"
+   - "Stop the debug session"
 
-## Status Bar
+## 📊 Status Bar
 
-The extension shows a status indicator in the VS Code status bar:
-- **MCP: Running (3500)** - Server is active on port 3500
-- **MCP: Stopped** - Server is not running
+The extension shows a flame icon in the VS Code status bar. Hover to see the port, click for options.
 
-Click the status bar item to access quick actions.
-
-## Troubleshooting
+## 🔧 Troubleshooting
 
 ### Server won't start
 
@@ -217,6 +258,12 @@ Click the status bar item to access quick actions.
 - Some task types may not expose output
 - Long-running tasks accumulate output over time
 
-## License
+## 🖥️ Headless Mode
+
+Run Ignition MCP without a VS Code GUI for use with AI agents like `cursor-agent` or `claude` CLI. This allows headless task execution and debugging using VS Code Server.
+
+See [docs/HEADLESS_MODE.md](docs/HEADLESS_MODE.md) for complete setup instructions.
+
+## 📄 License
 
 MIT

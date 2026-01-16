@@ -1,9 +1,9 @@
 {
-  "name": "tasks-mcp",
-  "displayName": "Tasks MCP Server",
-  "description": "Exposes VS Code tasks via MCP (Model Context Protocol) server",
+  "name": "ignition-mcp",
+  "displayName": "Ignition MCP",
+  "description": "Exposes VS Code tasks and launch configurations via MCP, letting AI assistants run builds, tests, and debug sessions",
   "version": "0.1.0",
-  "publisher": "tasks-mcp",
+  "publisher": "ignition-mcp",
   "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
@@ -18,39 +18,21 @@
   "contributes": {
     "commands": [
       {
-        "command": "tasks-mcp.enable",
-        "title": "Tasks MCP: Enable Server"
+        "command": "ignition-mcp.configure-cursor",
+        "title": "Ignition MCP: Configure Cursor"
       },
       {
-        "command": "tasks-mcp.disable",
-        "title": "Tasks MCP: Disable Server"
-      },
-      {
-        "command": "tasks-mcp.configure-cursor",
-        "title": "Tasks MCP: Configure Cursor"
-      },
-      {
-        "command": "tasks-mcp.show-status",
-        "title": "Tasks MCP: Show Status"
+        "command": "ignition-mcp.show-status",
+        "title": "Ignition MCP: Show Status"
       }
     ],
     "configuration": {
-      "title": "Tasks MCP Server",
+      "title": "Ignition MCP",
       "properties": {
-        "tasks-mcp.port": {
+        "ignition-mcp.port": {
           "type": "number",
           "default": 3500,
           "description": "Port for the MCP server"
-        },
-        "tasks-mcp.autoStart": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically start the MCP server when VS Code starts"
-        },
-        "tasks-mcp.removeConfigOnStop": {
-          "type": "boolean",
-          "default": false,
-          "description": "Remove the server entry from ~/.cursor/mcp.json when the server stops"
         }
       }
     }

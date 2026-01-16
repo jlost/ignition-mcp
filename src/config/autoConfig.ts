@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-const SERVER_NAME = 'vscode-tasks';
+const SERVER_NAME = 'ignition-mcp';
 
 interface MCPServerConfig {
   url?: string;
@@ -71,15 +71,6 @@ export function autoConfigureOnStart(port: number): { added: boolean; alreadyCon
   return { added: success, alreadyConfigured: false };
 }
 
-export function removeConfigOnStop(): boolean {
-  const config = readMcpConfig();
-  if (!config || !config.mcpServers || !config.mcpServers[SERVER_NAME]) {
-    return true;
-  }
-  delete config.mcpServers[SERVER_NAME];
-  return writeMcpConfig(config);
-}
-
 export async function configureForCursor(port: number): Promise<void> {
   const cursorConfigDir = path.join(os.homedir(), '.cursor');
   const mcpConfigPath = path.join(cursorConfigDir, 'mcp.json');
@@ -107,7 +98,7 @@ export async function configureForCursor(port: number): Promise<void> {
         config = { mcpServers: {} };
       }
     }
-    const existingServer = config.mcpServers[SERVER_NAME];
+    const existingServer = config.mcpServers![SERVER_NAME];
     if (existingServer) {
       const update = await vscode.window.showWarningMessage(
         `Server "${SERVER_NAME}" already exists in mcp.json. Update it?`,
@@ -118,7 +109,7 @@ export async function configureForCursor(port: number): Promise<void> {
         return;
       }
     }
-    config.mcpServers[SERVER_NAME] = {
+    config.mcpServers![SERVER_NAME] = {
       url: `http://localhost:${port}/sse`
     };
     fs.writeFileSync(mcpConfigPath, JSON.stringify(config, null, 2), 'utf-8');
