@@ -2,7 +2,9 @@
 
 # 🔥 Ignition MCP
 
-A VS Code extension that exposes tasks and launch configurations via MCP (Model Context Protocol), letting AI assistants like Cursor run your builds, tests, and debug sessions.
+A VS Code extension that exposes tasks and launch configurations via MCP (Model Context Protocol), letting AI assistants run your builds, tests, and debug sessions.
+
+**Works with:** VS Code + Copilot, Cursor, Claude Code, Claude Desktop, and any MCP-compatible client.
 
 ## ✨ Features
 
@@ -12,7 +14,7 @@ A VS Code extension that exposes tasks and launch configurations via MCP (Model 
 - 📤 **Output Capture**: Get real-time task output
 - 📋 **Task Management**: List, run, cancel, and monitor task status
 - 🎯 **Debug Management**: List, start, and stop debug sessions
-- 🔧 **Auto-Configuration**: One-click setup for Cursor
+- 🔧 **Auto-Configuration**: Automatic setup for VS Code, Cursor, and Claude
 
 ## 📦 Installation
 
@@ -57,14 +59,41 @@ A VS Code extension that exposes tasks and launch configurations via MCP (Model 
 
 ### Starting the Server
 
-The MCP server starts automatically when VS Code opens.
+The MCP server starts automatically when VS Code/Cursor opens.
 
-### Configuring Cursor
+### Auto-Configuration (Project-Local)
 
-The extension **automatically configures** `~/.cursor/mcp.json` when the server starts. On first run, you'll need to restart Cursor to pick up the new MCP server.
+On startup, the extension automatically configures project-local MCP settings:
 
-You can also manually configure by running "Ignition MCP: Configure Cursor" from the Command Palette, or add to `~/.cursor/mcp.json`:
+1. **If `mcp.json` exists** in `.vscode/`, `.cursor/`, or as `.mcp.json` - updates all existing files
+2. **If no `mcp.json` but directory exists** - creates `mcp.json` in `.vscode/` or `.cursor/`
+3. **If neither exists** - creates the appropriate directory based on your IDE (`.vscode/` for VS Code, `.cursor/` for Cursor)
 
+This means your AI assistant will automatically discover the MCP server when you open the project.
+
+### Manual Configuration (Global)
+
+For global configuration (applies to all projects), run **"Ignition MCP: Configure MCP Client"** from the Command Palette. This shows options for:
+
+- `~/.cursor/mcp.json` (Cursor global)
+- `~/.claude.json` (Claude Code global)
+- Claude Desktop config (platform-specific path)
+- Custom path (enter any location)
+
+### Config File Formats
+
+**VS Code Copilot** (`.vscode/mcp.json`):
+```json
+{
+  "servers": {
+    "ignition-mcp": {
+      "url": "http://localhost:3500/sse"
+    }
+  }
+}
+```
+
+**Cursor / Claude** (`.cursor/mcp.json`, `.mcp.json`, `~/.cursor/mcp.json`, `~/.claude.json`):
 ```json
 {
   "mcpServers": {
@@ -79,7 +108,7 @@ You can also manually configure by running "Ignition MCP: Configure Cursor" from
 
 | Command | Description |
 |---------|-------------|
-| Ignition MCP: Configure Cursor | Update Cursor's mcp.json |
+| Ignition MCP: Configure MCP Client | Add to global config (Cursor, Claude, custom) |
 | Ignition MCP: Show Status | Show server status and options |
 
 ## 🔌 MCP Tools
@@ -224,13 +253,13 @@ Configure the extension in VS Code settings:
    }
    ```
 
-2. Restart Cursor once to pick up the auto-configured MCP server
+2. The extension auto-configures the MCP server on startup
 
-3. Ask Cursor to run tasks or start debugging:
+3. Ask your AI assistant to run tasks or start debugging:
    - "Run the Build task"
    - "List all available tasks"
    - "Run tests and show me the output"
-   - "Run the lint script" (Cursor will use the Run Script task with scriptName="lint")
+   - "Run the lint script" (the AI will use the Run Script task with scriptName="lint")
    - "Start debugging the app"
    - "Stop the debug session"
 

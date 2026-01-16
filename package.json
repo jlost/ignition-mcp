@@ -2,7 +2,8 @@
   "name": "ignition-mcp",
   "displayName": "Ignition MCP",
   "description": "Exposes VS Code tasks and launch configurations via MCP, letting AI assistants run builds, tests, and debug sessions",
-  "version": "0.1.1",
+  "version": "0.2.0",
+  "preview": true,
   "publisher": "jostrand",
   "license": "MIT",
   "icon": "docs/ignition-mcp-logo.jpg",
@@ -19,6 +20,9 @@
     "model-context-protocol",
     "ai",
     "cursor",
+    "vscode",
+    "copilot",
+    "claude",
     "tasks",
     "debug",
     "automation",
@@ -40,8 +44,8 @@
   "contributes": {
     "commands": [
       {
-        "command": "ignition-mcp.configure-cursor",
-        "title": "Ignition MCP: Configure Cursor"
+        "command": "ignition-mcp.configure",
+        "title": "Ignition MCP: Configure MCP Client"
       },
       {
         "command": "ignition-mcp.show-status",

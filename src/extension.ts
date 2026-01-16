@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { MCPServer } from './server/mcpServer';
 import { TaskManager } from './tasks/taskManager';
 import { LaunchManager } from './launch/launchManager';
-import { configureForCursor, autoConfigureOnStart } from './config/autoConfig';
+import { configureGlobal, autoConfigureOnStart } from './config/autoConfig';
 
 let mcpServer: MCPServer | null = null;
 let taskManager: TaskManager | null = null;
@@ -30,7 +30,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(statusBarItem);
   updateStatusBar(false);
   context.subscriptions.push(
-    vscode.commands.registerCommand('ignition-mcp.configure-cursor', () => configureForCursor(port)),
+    vscode.commands.registerCommand('ignition-mcp.configure', () => configureGlobal(port)),
     vscode.commands.registerCommand('ignition-mcp.show-status', () => showStatusQuickPick(port))
   );
   enableServer(port);
@@ -61,11 +61,14 @@ async function enableServer(port: number) {
     updateStatusBar(true);
     log(`MCP server started successfully on port ${port}`);
     const configResult = autoConfigureOnStart(port);
-    if (configResult.added) {
-      log('Added server to ~/.cursor/mcp.json');
-      vscode.window.showInformationMessage(
-        `MCP server started on port ${port}. Added to ~/.cursor/mcp.json (restart Cursor to connect).`
-      );
+    if (configResult.configured) {
+      const pathNames = configResult.paths.map(p => p.split('/').slice(-2).join('/'));
+      log(`Updated MCP config: ${pathNames.join(', ')}`);
+      if (configResult.created) {
+        vscode.window.showInformationMessage(
+          `MCP server started on port ${port}. Created ${pathNames.join(', ')}.`
+        );
+      }
     }
   } catch (error) {
     log(`Failed to start MCP server: ${error}`);
@@ -93,7 +96,7 @@ function updateStatusBar(running: boolean) {
 async function showStatusQuickPick(port: number) {
   const isRunning = mcpServer !== null;
   const items: vscode.QuickPickItem[] = [
-    { label: '$(gear) Configure Cursor', description: 'Update ~/.cursor/mcp.json' },
+    { label: '$(gear) Configure MCP Client', description: 'Add to global config (Cursor, Claude, etc.)' },
     { label: '$(output) Show Output', description: `Port: ${port}, Status: ${isRunning ? 'Running' : 'Stopped'}` }
   ];
   const selection = await vscode.window.showQuickPick(items, {
@@ -101,7 +104,7 @@ async function showStatusQuickPick(port: number) {
   });
   if (!selection) return;
   if (selection.label.includes('Configure')) {
-    await configureForCursor(port);
+    await configureGlobal(port);
   } else if (selection.label.includes('Output')) {
     outputChannel?.show();
   }

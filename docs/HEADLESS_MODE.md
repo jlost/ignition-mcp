@@ -194,9 +194,23 @@ node keep-alive.js &
 
 ## Configuring AI Agents
 
-### cursor-agent / Cursor CLI
+### VS Code Copilot
 
-Add to your MCP configuration (`~/.cursor/mcp.json`):
+Add to `.vscode/mcp.json` in your workspace:
+
+```json
+{
+  "servers": {
+    "ignition-mcp": {
+      "url": "http://localhost:3500/sse"
+    }
+  }
+}
+```
+
+### Cursor
+
+Add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
 
 ```json
 {
@@ -208,6 +222,39 @@ Add to your MCP configuration (`~/.cursor/mcp.json`):
 }
 ```
 
+### Claude Code
+
+Add to `~/.claude.json` (global) or `.mcp.json` (project):
+
+```json
+{
+  "mcpServers": {
+    "ignition-mcp": {
+      "url": "http://localhost:3500/sse"
+    }
+  }
+}
+```
+
+### Claude Desktop
+
+Config file locations by platform:
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "ignition-mcp": {
+      "url": "http://localhost:3500/sse"
+    }
+  }
+}
+```
+
+### Remote Servers
+
 For remote servers, use the tunnel or SSH forwarded port:
 
 ```json
@@ -218,15 +265,6 @@ For remote servers, use the tunnel or SSH forwarded port:
     }
   }
 }
-```
-
-### Claude CLI / Other MCP Clients
-
-Configure the SSE endpoint in your client's MCP settings:
-
-```bash
-# Example: claude CLI
-export MCP_SERVERS='{"ignition-mcp": {"url": "http://localhost:3500/sse"}}'
 ```
 
 ## Verifying the Setup
