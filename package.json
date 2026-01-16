@@ -1,0 +1,69 @@
+{
+  "name": "tasks-mcp",
+  "displayName": "Tasks MCP Server",
+  "description": "Exposes VS Code tasks via MCP (Model Context Protocol) server",
+  "version": "0.1.0",
+  "publisher": "tasks-mcp",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "tasks-mcp.enable",
+        "title": "Tasks MCP: Enable Server"
+      },
+      {
+        "command": "tasks-mcp.disable",
+        "title": "Tasks MCP: Disable Server"
+      },
+      {
+        "command": "tasks-mcp.configure-cursor",
+        "title": "Tasks MCP: Configure Cursor"
+      },
+      {
+        "command": "tasks-mcp.show-status",
+        "title": "Tasks MCP: Show Status"
+      }
+    ],
+    "configuration": {
+      "title": "Tasks MCP Server",
+      "properties": {
+        "tasks-mcp.port": {
+          "type": "number",
+          "default": 3500,
+          "description": "Port for the MCP server"
+        },
+        "tasks-mcp.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically start the MCP server when VS Code starts"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.19.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.22.0"
+  }
+}
