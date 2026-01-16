@@ -2,17 +2,35 @@
   "name": "ignition-mcp",
   "displayName": "Ignition MCP",
   "description": "Exposes VS Code tasks and launch configurations via MCP, letting AI assistants run builds, tests, and debug sessions",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "jostrand",
   "license": "MIT",
+  "icon": "docs/ignition-mcp-logo.jpg",
   "repository": {
     "type": "git",
     "url": "https://github.com/jlost/ignition-mcp"
   },
+  "homepage": "https://github.com/jlost/ignition-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/jlost/ignition-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "cursor",
+    "tasks",
+    "debug",
+    "automation",
+    "launch",
+    "workspace"
+  ],
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
+    "Debuggers",
+    "Machine Learning",
     "Other"
   ],
   "activationEvents": [
