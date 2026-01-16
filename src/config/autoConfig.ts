@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+const SERVER_NAME = 'vscode-tasks';
+
 interface MCPServerConfig {
   url?: string;
   command?: string;
@@ -12,6 +14,70 @@ interface MCPServerConfig {
 
 interface MCPConfig {
   mcpServers?: Record<string, MCPServerConfig>;
+}
+
+function getMcpConfigPath(): string {
+  return path.join(os.homedir(), '.cursor', 'mcp.json');
+}
+
+function readMcpConfig(): MCPConfig | null {
+  const configPath = getMcpConfigPath();
+  if (!fs.existsSync(configPath)) {
+    return null;
+  }
+  try {
+    const content = fs.readFileSync(configPath, 'utf-8');
+    const config = JSON.parse(content);
+    return config;
+  } catch {
+    return null;
+  }
+}
+
+function writeMcpConfig(config: MCPConfig): boolean {
+  const configPath = getMcpConfigPath();
+  const configDir = path.dirname(configPath);
+  try {
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true });
+    }
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function autoConfigureOnStart(port: number): { added: boolean; alreadyConfigured: boolean } {
+  const expectedUrl = `http://localhost:${port}/sse`;
+  let config = readMcpConfig();
+  if (!config) {
+    config = { mcpServers: {} };
+  }
+  if (!config.mcpServers) {
+    config.mcpServers = {};
+  }
+  const existing = config.mcpServers[SERVER_NAME];
+  if (existing && existing.url === expectedUrl) {
+    return { added: false, alreadyConfigured: true };
+  }
+  if (existing && existing.url !== expectedUrl) {
+    config.mcpServers[SERVER_NAME] = { url: expectedUrl };
+    const success = writeMcpConfig(config);
+    return { added: success, alreadyConfigured: false };
+  }
+  config.mcpServers[SERVER_NAME] = { url: expectedUrl };
+  const success = writeMcpConfig(config);
+  return { added: success, alreadyConfigured: false };
+}
+
+export function removeConfigOnStop(): boolean {
+  const config = readMcpConfig();
+  if (!config || !config.mcpServers || !config.mcpServers[SERVER_NAME]) {
+    return true;
+  }
+  delete config.mcpServers[SERVER_NAME];
+  return writeMcpConfig(config);
 }
 
 export async function configureForCursor(port: number): Promise<void> {
@@ -41,11 +107,10 @@ export async function configureForCursor(port: number): Promise<void> {
         config = { mcpServers: {} };
       }
     }
-    const serverName = 'vscode-tasks';
-    const existingServer = config.mcpServers[serverName];
+    const existingServer = config.mcpServers[SERVER_NAME];
     if (existingServer) {
       const update = await vscode.window.showWarningMessage(
-        `Server "${serverName}" already exists in mcp.json. Update it?`,
+        `Server "${SERVER_NAME}" already exists in mcp.json. Update it?`,
         'Update',
         'Cancel'
       );
@@ -53,12 +118,12 @@ export async function configureForCursor(port: number): Promise<void> {
         return;
       }
     }
-    config.mcpServers[serverName] = {
+    config.mcpServers[SERVER_NAME] = {
       url: `http://localhost:${port}/sse`
     };
     fs.writeFileSync(mcpConfigPath, JSON.stringify(config, null, 2), 'utf-8');
     const openFile = await vscode.window.showInformationMessage(
-      `Cursor MCP configuration updated! Server "vscode-tasks" added pointing to port ${port}.`,
+      `Cursor MCP configuration updated! Server "${SERVER_NAME}" added pointing to port ${port}.`,
       'Open mcp.json',
       'OK'
     );

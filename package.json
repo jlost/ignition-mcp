@@ -46,6 +46,11 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically start the MCP server when VS Code starts"
+        },
+        "tasks-mcp.removeConfigOnStop": {
+          "type": "boolean",
+          "default": false,
+          "description": "Remove the server entry from ~/.cursor/mcp.json when the server stops"
         }
       }
     }

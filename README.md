@@ -56,11 +56,9 @@ The MCP server starts automatically when VS Code opens (configurable). You can a
 
 ### Configuring Cursor
 
-1. Open Command Palette
-2. Run "Tasks MCP: Configure Cursor"
-3. This adds the server to `~/.cursor/mcp.json`
+The extension **automatically configures** `~/.cursor/mcp.json` when the server starts. On first run, you'll need to restart Cursor to pick up the new MCP server.
 
-Or manually add to `~/.cursor/mcp.json`:
+You can also manually configure by running "Tasks MCP: Configure Cursor" from the Command Palette, or add to `~/.cursor/mcp.json`:
 
 ```json
 {
@@ -83,49 +81,57 @@ Or manually add to `~/.cursor/mcp.json`:
 
 ## MCP Tools
 
-The following tools are exposed via MCP:
+Each VS Code task is exposed as its own tool, plus utility tools for task management.
 
-### list_tasks
+### Dynamic Task Tools
 
-List all available VS Code tasks from the workspace.
+Each task defined in your workspace becomes a tool named `task_<sanitized_name>`. For example:
+- Task "Build" -> tool `task_build`
+- Task "npm: test" -> tool `task_npm_test`
+
+**Behavior based on task type:**
+- **Background tasks** (`isBackground: true`): Start immediately and return an `executionId`. Check progress later with `get_task_status` or `get_task_output`.
+- **Foreground tasks** (`isBackground: false`): Wait for completion and return the result with exit code and output.
+
+**Task inputs** are automatically exposed as **optional** tool parameters:
+- If the AI provides **all inputs** (or they have defaults), the task runs immediately with those values
+- If **any input is missing**, VS Code prompts the user for the missing values
+- This allows the AI to provide what it knows and defer to the user for the rest
+
+### Utility Tools
+
+#### list_tasks
+
+List all available VS Code tasks with their metadata (name, type, source, isBackground).
 
 **Parameters**: None
 
-**Returns**: Array of task objects with name, source, type, and scope.
+**Returns**: Array of task objects.
 
-### run_task
-
-Execute a VS Code task by name.
-
-**Parameters**:
-- `taskName` (string): The name of the task to run
-
-**Returns**: Object with success status and executionId for tracking.
-
-### get_task_status
+#### get_task_status
 
 Get the status of a task execution.
 
 **Parameters**:
-- `executionId` (string): The execution ID from run_task
+- `executionId` (string): The execution ID from a background task
 
 **Returns**: Object with status (running/completed/failed/cancelled), timing info, and exit code.
 
-### get_task_output
+#### get_task_output
 
 Get the captured output from a task execution.
 
 **Parameters**:
-- `executionId` (string): The execution ID from run_task
+- `executionId` (string): The execution ID from a task
 
 **Returns**: Object with the captured terminal output.
 
-### cancel_task
+#### cancel_task
 
 Cancel a running task.
 
 **Parameters**:
-- `executionId` (string): The execution ID from run_task
+- `executionId` (string): The execution ID from a task
 
 **Returns**: Object with success status.
 
@@ -137,6 +143,7 @@ Configure the extension in VS Code settings:
 |---------|---------|-------------|
 | `tasks-mcp.port` | 3500 | Port for the MCP server |
 | `tasks-mcp.autoStart` | true | Start server when VS Code opens |
+| `tasks-mcp.removeConfigOnStop` | false | Remove entry from mcp.json when server stops |
 
 ## Example Workflow
 
@@ -154,6 +161,19 @@ Configure the extension in VS Code settings:
          "label": "Test",
          "type": "shell",
          "command": "npm test"
+       },
+       {
+         "label": "Run Script",
+         "type": "shell",
+         "command": "npm run ${input:scriptName}"
+       }
+     ],
+     "inputs": [
+       {
+         "id": "scriptName",
+         "type": "pickString",
+         "description": "Which script to run?",
+         "options": ["dev", "build", "test", "lint"]
        }
      ]
    }
@@ -167,6 +187,7 @@ Configure the extension in VS Code settings:
    - "Run the Build task"
    - "List all available tasks"
    - "Run tests and show me the output"
+   - "Run the lint script" (Cursor will use the Run Script task with scriptName="lint")
 
 ## Status Bar
 

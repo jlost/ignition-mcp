@@ -1,10 +1,24 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
+
+export interface TaskInputDefinition {
+  id: string;
+  type: 'promptString' | 'pickString' | 'command';
+  description?: string;
+  default?: string;
+  options?: string[];
+}
 
 export interface TaskInfo {
   name: string;
   source: string;
   type: string;
   scope?: string;
+  isBackground: boolean;
+  detail?: string;
+  inputs?: TaskInputDefinition[];
+  rawCommand?: string;
 }
 
 export interface TaskExecutionInfo {
@@ -54,12 +68,80 @@ export class TaskManager implements vscode.Disposable {
 
   async listTasks(): Promise<TaskInfo[]> {
     const tasks = await vscode.tasks.fetchTasks();
-    return tasks.map((task) => ({
-      name: task.name,
-      source: task.source,
-      type: task.definition.type,
-      scope: this.getScopeName(task.scope)
-    }));
+    const tasksJsonData = this.readTasksJson();
+    const inputDefinitions = tasksJsonData?.inputs || [];
+    return tasks.map((task) => {
+      const rawCommand = this.getRawCommand(task);
+      const usedInputIds = this.findInputReferences(rawCommand);
+      const inputs = usedInputIds.length > 0
+        ? inputDefinitions.filter((inp: TaskInputDefinition) => usedInputIds.includes(inp.id))
+        : undefined;
+      return {
+        name: task.name,
+        source: task.source,
+        type: task.definition.type,
+        scope: this.getScopeName(task.scope),
+        isBackground: task.isBackground,
+        detail: task.detail,
+        inputs,
+        rawCommand: usedInputIds.length > 0 ? rawCommand : undefined
+      };
+    });
+  }
+
+  async getTask(taskName: string): Promise<vscode.Task | undefined> {
+    const tasks = await vscode.tasks.fetchTasks();
+    return tasks.find((t) => t.name === taskName);
+  }
+
+  private readTasksJson(): { inputs?: TaskInputDefinition[]; tasks?: unknown[] } | null {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      return null;
+    }
+    const tasksJsonPath = path.join(workspaceFolders[0].uri.fsPath, '.vscode', 'tasks.json');
+    if (!fs.existsSync(tasksJsonPath)) {
+      return null;
+    }
+    try {
+      const content = fs.readFileSync(tasksJsonPath, 'utf-8');
+      const cleanedContent = content.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+      return JSON.parse(cleanedContent);
+    } catch {
+      return null;
+    }
+  }
+
+  private getRawCommand(task: vscode.Task): string {
+    const exec = task.execution;
+    if (!exec) return '';
+    if (exec instanceof vscode.ShellExecution) {
+      if (exec.commandLine) {
+        return exec.commandLine;
+      }
+      if (exec.command) {
+        const cmd = typeof exec.command === 'string' ? exec.command : exec.command.value;
+        const args = exec.args?.map(a => typeof a === 'string' ? a : a.value).join(' ') || '';
+        return args ? `${cmd} ${args}` : cmd;
+      }
+    }
+    if (exec instanceof vscode.ProcessExecution) {
+      const args = exec.args?.join(' ') || '';
+      return args ? `${exec.process} ${args}` : exec.process;
+    }
+    return '';
+  }
+
+  private findInputReferences(command: string): string[] {
+    const regex = /\$\{input:([^}]+)\}/g;
+    const matches: string[] = [];
+    let match;
+    while ((match = regex.exec(command)) !== null) {
+      if (!matches.includes(match[1])) {
+        matches.push(match[1]);
+      }
+    }
+    return matches;
   }
 
   private getScopeName(scope: vscode.TaskScope | vscode.WorkspaceFolder | undefined): string | undefined {
@@ -69,14 +151,18 @@ export class TaskManager implements vscode.Disposable {
     return undefined;
   }
 
-  async runTask(taskName: string): Promise<TaskRunResult> {
+  async runTask(taskName: string, inputValues?: Record<string, string>): Promise<TaskRunResult> {
     const tasks = await vscode.tasks.fetchTasks();
     const task = tasks.find((t) => t.name === taskName);
     if (!task) {
       return { success: false, error: `Task "${taskName}" not found` };
     }
     try {
-      const execution = await vscode.tasks.executeTask(task);
+      let taskToRun = task;
+      if (inputValues && Object.keys(inputValues).length > 0) {
+        taskToRun = this.createTaskWithInputs(task, inputValues);
+      }
+      const execution = await vscode.tasks.executeTask(taskToRun);
       const executionId = this.generateExecutionId();
       this.activeExecutions.set(executionId, execution);
       const executionInfo: TaskExecutionInfo = {
@@ -91,6 +177,78 @@ export class TaskManager implements vscode.Disposable {
     } catch (error) {
       return { success: false, error: String(error) };
     }
+  }
+
+  private createTaskWithInputs(originalTask: vscode.Task, inputValues: Record<string, string>): vscode.Task {
+    const rawCommand = this.getRawCommand(originalTask);
+    let substitutedCommand = rawCommand;
+    for (const [inputId, value] of Object.entries(inputValues)) {
+      const pattern = new RegExp(`\\$\\{input:${inputId}\\}`, 'g');
+      substitutedCommand = substitutedCommand.replace(pattern, value);
+    }
+    const shellExec = new vscode.ShellExecution(substitutedCommand);
+    const newTask = new vscode.Task(
+      originalTask.definition,
+      originalTask.scope || vscode.TaskScope.Workspace,
+      originalTask.name,
+      originalTask.source,
+      shellExec,
+      originalTask.problemMatchers
+    );
+    newTask.presentationOptions = originalTask.presentationOptions;
+    newTask.isBackground = originalTask.isBackground;
+    return newTask;
+  }
+
+  async runTaskAndWait(
+    taskName: string,
+    inputValues?: Record<string, string>,
+    timeoutMs: number = 300000
+  ): Promise<{
+    success: boolean;
+    executionId?: string;
+    status?: TaskExecutionInfo['status'];
+    exitCode?: number;
+    output?: string;
+    error?: string;
+  }> {
+    const result = await this.runTask(taskName, inputValues);
+    if (!result.success || !result.executionId) {
+      return { success: false, error: result.error };
+    }
+    const executionId = result.executionId;
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+      const checkStatus = () => {
+        const info = this.executions.get(executionId);
+        if (!info) {
+          resolve({ success: false, executionId, error: 'Execution info lost' });
+          return;
+        }
+        if (info.status !== 'running') {
+          const output = this.outputs.get(executionId);
+          resolve({
+            success: info.status === 'completed',
+            executionId,
+            status: info.status,
+            exitCode: info.exitCode,
+            output
+          });
+          return;
+        }
+        if (Date.now() - startTime > timeoutMs) {
+          resolve({
+            success: false,
+            executionId,
+            status: 'running',
+            error: `Task timed out after ${timeoutMs}ms (still running)`
+          });
+          return;
+        }
+        setTimeout(checkStatus, 100);
+      };
+      checkStatus();
+    });
   }
 
   getTaskStatus(executionId: string): TaskStatusResult {

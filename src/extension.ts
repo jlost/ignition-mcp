@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { MCPServer } from './server/mcpServer';
 import { TaskManager } from './tasks/taskManager';
-import { configureForCursor } from './config/autoConfig';
+import { configureForCursor, autoConfigureOnStart, removeConfigOnStop } from './config/autoConfig';
 
 let mcpServer: MCPServer | null = null;
 let taskManager: TaskManager | null = null;
@@ -50,7 +50,14 @@ async function enableServer(port: number) {
     mcpServer = new MCPServer(taskManager, port);
     await mcpServer.start();
     updateStatusBar(true);
-    vscode.window.showInformationMessage(`MCP server started on port ${port}`);
+    const configResult = autoConfigureOnStart(port);
+    if (configResult.added) {
+      vscode.window.showInformationMessage(
+        `MCP server started on port ${port}. Added to ~/.cursor/mcp.json (restart Cursor to connect).`
+      );
+    } else {
+      vscode.window.showInformationMessage(`MCP server started on port ${port}`);
+    }
   } catch (error) {
     vscode.window.showErrorMessage(`Failed to start MCP server: ${error}`);
     mcpServer = null;
@@ -65,6 +72,11 @@ async function disableServer() {
   await mcpServer.stop();
   mcpServer = null;
   updateStatusBar(false);
+  const config = vscode.workspace.getConfiguration('tasks-mcp');
+  const removeOnStop = config.get<boolean>('removeConfigOnStop', false);
+  if (removeOnStop) {
+    removeConfigOnStop();
+  }
   vscode.window.showInformationMessage('MCP server stopped');
 }
 

@@ -2,7 +2,7 @@ import * as http from 'http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { z } from 'zod';
-import { TaskManager } from '../tasks/taskManager';
+import { TaskManager, TaskInfo, TaskInputDefinition } from '../tasks/taskManager';
 
 export class MCPServer {
   private server: http.Server | null = null;
@@ -18,13 +18,25 @@ export class MCPServer {
       name: 'vscode-tasks',
       version: '0.1.0'
     });
-    this.registerTools();
   }
 
-  private registerTools() {
+  private sanitizeToolName(taskName: string): string {
+    return 'task_' + taskName
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '');
+  }
+
+  private async registerTools() {
+    this.registerUtilityTools();
+    await this.registerTaskTools();
+  }
+
+  private registerUtilityTools() {
     this.mcpServer.tool(
       'list_tasks',
-      'List all available VS Code tasks from the workspace',
+      'List all available VS Code tasks from the workspace with their metadata',
       {},
       async () => {
         const tasks = await this.taskManager.listTasks();
@@ -37,23 +49,9 @@ export class MCPServer {
       }
     );
     this.mcpServer.tool(
-      'run_task',
-      'Execute a VS Code task by name',
-      { taskName: z.string().describe('The name of the task to run') },
-      async ({ taskName }) => {
-        const result = await this.taskManager.runTask(taskName);
-        return {
-          content: [{
-            type: 'text' as const,
-            text: JSON.stringify(result, null, 2)
-          }]
-        };
-      }
-    );
-    this.mcpServer.tool(
       'get_task_status',
-      'Get the status of a task execution',
-      { executionId: z.string().describe('The execution ID returned from run_task') },
+      'Get the status of a task execution by its execution ID',
+      { executionId: z.string().describe('The execution ID returned when a background task was started') },
       async ({ executionId }) => {
         const status = this.taskManager.getTaskStatus(executionId);
         return {
@@ -67,7 +65,7 @@ export class MCPServer {
     this.mcpServer.tool(
       'get_task_output',
       'Get the captured output from a task execution',
-      { executionId: z.string().describe('The execution ID returned from run_task') },
+      { executionId: z.string().describe('The execution ID returned when a background task was started') },
       async ({ executionId }) => {
         const output = this.taskManager.getTaskOutput(executionId);
         return {
@@ -81,7 +79,7 @@ export class MCPServer {
     this.mcpServer.tool(
       'cancel_task',
       'Cancel a running task',
-      { executionId: z.string().describe('The execution ID returned from run_task') },
+      { executionId: z.string().describe('The execution ID returned when a task was started') },
       async ({ executionId }) => {
         const result = this.taskManager.cancelTask(executionId);
         return {
@@ -94,7 +92,179 @@ export class MCPServer {
     );
   }
 
+  private async registerTaskTools() {
+    const tasks = await this.taskManager.listTasks();
+    for (const task of tasks) {
+      this.registerTaskTool(task);
+    }
+    console.log(`Registered ${tasks.length} task tools`);
+  }
+
+  private buildInputSchema(inputs: TaskInputDefinition[]): Record<string, z.ZodOptional<z.ZodString>> {
+    const schema: Record<string, z.ZodOptional<z.ZodString>> = {};
+    for (const input of inputs) {
+      let zodField = z.string();
+      const descParts: string[] = [];
+      if (input.description) {
+        descParts.push(input.description);
+      }
+      if (input.type === 'pickString' && input.options) {
+        descParts.push(`Options: ${input.options.join(', ')}`);
+      }
+      if (input.default) {
+        descParts.push(`Default: ${input.default}`);
+      }
+      descParts.push('(optional - omit to prompt user)');
+      zodField = zodField.describe(descParts.join('. '));
+      schema[input.id] = zodField.optional();
+    }
+    return schema;
+  }
+
+  private resolveInputValues(
+    inputs: TaskInputDefinition[],
+    providedValues: Record<string, string | undefined>
+  ): { complete: boolean; values: Record<string, string> } {
+    const resolved: Record<string, string> = {};
+    for (const input of inputs) {
+      const provided = providedValues[input.id];
+      if (provided !== undefined && provided !== '') {
+        resolved[input.id] = provided;
+      } else if (input.default !== undefined) {
+        resolved[input.id] = input.default;
+      } else {
+        return { complete: false, values: {} };
+      }
+    }
+    return { complete: true, values: resolved };
+  }
+
+  private registerTaskTool(task: TaskInfo) {
+    const toolName = this.sanitizeToolName(task.name);
+    const isBackground = task.isBackground;
+    const description = this.buildTaskDescription(task);
+    const hasInputs = task.inputs && task.inputs.length > 0;
+    const inputSchema = hasInputs ? this.buildInputSchema(task.inputs!) : {};
+    this.mcpServer.tool(
+      toolName,
+      description,
+      inputSchema,
+      async (params: Record<string, string | undefined>) => {
+        let inputValues: Record<string, string> | undefined;
+        let userWillBePrompted = false;
+        if (hasInputs) {
+          const resolved = this.resolveInputValues(task.inputs!, params);
+          if (resolved.complete) {
+            inputValues = resolved.values;
+          } else {
+            inputValues = undefined;
+            userWillBePrompted = true;
+          }
+        }
+        if (isBackground) {
+          const result = await this.taskManager.runTask(task.name, inputValues);
+          if (!result.success) {
+            return {
+              content: [{
+                type: 'text' as const,
+                text: JSON.stringify({ error: result.error }, null, 2)
+              }],
+              isError: true
+            };
+          }
+          const response: Record<string, unknown> = {
+            status: 'started',
+            message: `Background task "${task.name}" started. Use get_task_status or get_task_output with the executionId to check progress.`,
+            executionId: result.executionId,
+            isBackground: true
+          };
+          if (userWillBePrompted) {
+            response.note = 'User will be prompted for missing input values in VS Code.';
+          }
+          return {
+            content: [{
+              type: 'text' as const,
+              text: JSON.stringify(response, null, 2)
+            }]
+          };
+        } else {
+          if (userWillBePrompted) {
+            const result = await this.taskManager.runTask(task.name, inputValues);
+            if (!result.success) {
+              return {
+                content: [{
+                  type: 'text' as const,
+                  text: JSON.stringify({ error: result.error }, null, 2)
+                }],
+                isError: true
+              };
+            }
+            return {
+              content: [{
+                type: 'text' as const,
+                text: JSON.stringify({
+                  status: 'started',
+                  message: `Task "${task.name}" started. User is being prompted for input values in VS Code.`,
+                  executionId: result.executionId,
+                  userPrompted: true,
+                  note: 'Use get_task_status to check when the task completes.'
+                }, null, 2)
+              }]
+            };
+          }
+          const result = await this.taskManager.runTaskAndWait(task.name, inputValues);
+          if (!result.success) {
+            return {
+              content: [{
+                type: 'text' as const,
+                text: JSON.stringify({
+                  status: result.status || 'failed',
+                  error: result.error,
+                  exitCode: result.exitCode,
+                  executionId: result.executionId,
+                  output: result.output
+                }, null, 2)
+              }],
+              isError: true
+            };
+          }
+          return {
+            content: [{
+              type: 'text' as const,
+              text: JSON.stringify({
+                status: 'completed',
+                exitCode: result.exitCode,
+                executionId: result.executionId,
+                output: result.output
+              }, null, 2)
+            }]
+          };
+        }
+      }
+    );
+  }
+
+  private buildTaskDescription(task: TaskInfo): string {
+    const parts: string[] = [];
+    parts.push(`Run VS Code task "${task.name}"`);
+    if (task.detail) {
+      parts.push(`- ${task.detail}`);
+    }
+    parts.push(`[type: ${task.type}, source: ${task.source}]`);
+    if (task.isBackground) {
+      parts.push('(background task - starts and returns immediately, check status later)');
+    } else {
+      parts.push('(waits for completion and returns result)');
+    }
+    if (task.inputs && task.inputs.length > 0) {
+      const inputNames = task.inputs.map(i => i.id).join(', ');
+      parts.push(`Inputs: ${inputNames} (all optional - omit any to prompt user)`);
+    }
+    return parts.join(' ');
+  }
+
   async start(): Promise<void> {
+    await this.registerTools();
     return new Promise((resolve, reject) => {
       this.server = http.createServer(async (req, res) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
