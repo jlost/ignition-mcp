@@ -25,13 +25,6 @@ A VS Code extension that exposes tasks and launch configurations via MCP (Model 
 
 ## 🚀 Usage
 
-### 🎮 Available Commands
-
-| Command | Description |
-|---------|-------------|
-| Ignition MCP: Configure MCP Client | Add to global config (Cursor, Claude, custom) |
-| Ignition MCP: Show Status | Show server status and options |
-
 ## 📖 Example Workflow
 
 1. Define tasks in `.vscode/tasks.json`:
@@ -138,6 +131,13 @@ Each launch configuration defined in your workspace becomes a tool named `launch
 | `get_debug_status` | Get status of active debug sessions | None |
 | `stop_debug_session` | Stop a debug session | `sessionId` (optional) |
 
+### 🎮 Available Commands
+
+| Command | Description |
+|---------|-------------|
+| Ignition MCP: Configure MCP Client | Add to global config (Cursor, Claude, custom) |
+| Ignition MCP: Show Status | Show server status and options |
+| Ignition MCP: Take Over Server | Take over MCP server from another window running the same workspace |
 
 ## 📊 Status Bar
 
