@@ -7,6 +7,8 @@ import { LaunchManager, LaunchInfo, LaunchInputDefinition } from '../launch/laun
 
 type InputDefinition = TaskInputDefinition | LaunchInputDefinition;
 
+export type ShutdownCallback = () => void;
+
 export class MCPServer {
   private server: http.Server | null = null;
   private mcpServer: McpServer;
@@ -14,11 +16,18 @@ export class MCPServer {
   private port: number;
   private taskManager: TaskManager;
   private launchManager: LaunchManager;
+  private onShutdownRequested?: ShutdownCallback;
 
-  constructor(taskManager: TaskManager, launchManager: LaunchManager, port: number) {
+  constructor(
+    taskManager: TaskManager,
+    launchManager: LaunchManager,
+    port: number,
+    onShutdownRequested?: ShutdownCallback
+  ) {
     this.taskManager = taskManager;
     this.launchManager = launchManager;
     this.port = port;
+    this.onShutdownRequested = onShutdownRequested;
     this.mcpServer = new McpServer({
       name: 'ignition-mcp',
       version: '0.1.0'
@@ -414,6 +423,8 @@ export class MCPServer {
         } else if (url.pathname === '/health' && req.method === 'GET') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ status: 'ok', server: 'ignition-mcp' }));
+        } else if (url.pathname === '/shutdown' && req.method === 'POST') {
+          await this.handleShutdown(req, res);
         } else {
           res.writeHead(404);
           res.end('Not found');
@@ -462,6 +473,30 @@ export class MCPServer {
       console.error('Error handling message:', error);
       res.writeHead(500);
       res.end('Internal server error');
+    }
+  }
+
+  private async handleShutdown(req: http.IncomingMessage, res: http.ServerResponse) {
+    let body = '';
+    for await (const chunk of req) {
+      body += chunk;
+    }
+    try {
+      const data = JSON.parse(body) as { requester?: string };
+      if (data.requester !== 'ignition-mcp') {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid requester' }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'shutting_down' }));
+      // Trigger shutdown callback after response is sent
+      if (this.onShutdownRequested) {
+        setImmediate(() => this.onShutdownRequested!());
+      }
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid request body' }));
     }
   }
 

@@ -1,0 +1,7 @@
+{
+  "servers": {
+    "ignition-mcp": {
+      "url": "http://localhost:4075/sse"
+    }
+  }
+}

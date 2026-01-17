@@ -50,6 +50,10 @@
       {
         "command": "ignition-mcp.show-status",
         "title": "Ignition MCP: Show Status"
+      },
+      {
+        "command": "ignition-mcp.takeover",
+        "title": "Ignition MCP: Take Over Server"
       }
     ],
     "configuration": {
@@ -58,7 +62,7 @@
         "ignition-mcp.port": {
           "type": "number",
           "default": 3500,
-          "description": "Port for the MCP server"
+          "description": "Base port for the MCP server (actual port is computed from workspace path to avoid conflicts)"
         }
       }
     }
@@ -73,6 +77,7 @@
   "devDependencies": {
     "@types/node": "^20.10.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.2",
     "esbuild": "^0.19.0",
     "typescript": "^5.3.0"
   },
