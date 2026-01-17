@@ -66,7 +66,7 @@ With Ignition MCP, your AI uses VS Code's task API directly: errors populate the
 2. The extension auto-configures the MCP server on startup with e.g.: 
 ```json
 {
-  "servers": {
+  "mcpServers": {
     "ignition-mcp": {
       "url": "http://localhost:<dynamic-port>/sse"
     }

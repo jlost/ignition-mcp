@@ -31,10 +31,8 @@ function getWorkspaceRoot(): string | undefined {
   return folders && folders.length > 0 ? folders[0].uri.fsPath : undefined;
 }
 
-function getServersKey(configPath: string): 'servers' | 'mcpServers' {
-  if (configPath.includes('.vscode')) {
-    return 'servers';
-  }
+function getServersKey(_configPath: string): 'servers' | 'mcpServers' {
+  // 'mcpServers' is the standard MCP schema key used by Cursor, Claude, etc.
   return 'mcpServers';
 }
 
