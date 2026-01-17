@@ -23,9 +23,7 @@ A VS Code extension that exposes tasks and launch configurations via MCP (Model 
 - 🎯 **Debug Management**: List, start, and stop debug sessions
 - 🔧 **Auto-Configuration**: Automatic setup for VS Code, Cursor, and Claude
 
-## 🚀 Usage
-
-## 📖 Example Workflow
+## 🚀 Usage Example
 
 1. Define tasks in `.vscode/tasks.json`:
    ```json
@@ -131,7 +129,7 @@ Each launch configuration defined in your workspace becomes a tool named `launch
 | `get_debug_status` | Get status of active debug sessions | None |
 | `stop_debug_session` | Stop a debug session | `sessionId` (optional) |
 
-### 🎮 Available Commands
+## 🎮 Available Commands
 
 | Command | Description |
 |---------|-------------|
