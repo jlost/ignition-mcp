@@ -23,46 +23,7 @@ A VS Code extension that exposes tasks and launch configurations via MCP (Model 
 - 🎯 **Debug Management**: List, start, and stop debug sessions
 - 🔧 **Auto-Configuration**: Automatic setup for VS Code, Cursor, and Claude
 
-## ⚙️ Configuration
-
-Configure the extension in VS Code settings:
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `ignition-mcp.port` | 3500 | Port for the MCP server |
-
 ## 🚀 Usage
-
-### MCP Client Configuration (Project-Local)
-
-On startup, the extension automatically configures project-local MCP settings:
-
-1. **If `mcp.json` exists** in `.vscode/`, `.cursor/`, or as `.mcp.json` - updates all existing files
-2. **If no `mcp.json` but directory exists** - creates `mcp.json` in `.vscode/` or `.cursor/`
-3. **If neither exists** - creates the appropriate directory based on your IDE (`.vscode/` for VS Code, `.cursor/` for Cursor)
-
-This means your AI assistant will automatically discover the MCP server when you open the project.
-
-### MCP Client Configuration (Global)
-
-For global configuration (applies to all projects), run **"Ignition MCP: Configure MCP Client"** from the Command Palette. This shows options for:
-
-- `~/.cursor/mcp.json` (Cursor global)
-- `~/.claude.json` (Claude Code global)
-- Claude Desktop config (platform-specific path)
-- Custom path (enter any location)
-
-### MCP Config Example
-
-```json
-{
-  "servers": {
-    "ignition-mcp": {
-      "url": "http://localhost:3500/sse"
-    }
-  }
-}
-```
 
 ### 🎮 Available Commands
 
@@ -70,6 +31,59 @@ For global configuration (applies to all projects), run **"Ignition MCP: Configu
 |---------|-------------|
 | Ignition MCP: Configure MCP Client | Add to global config (Cursor, Claude, custom) |
 | Ignition MCP: Show Status | Show server status and options |
+
+## 📖 Example Workflow
+
+1. Define tasks in `.vscode/tasks.json`:
+   ```json
+   {
+     "version": "2.0.0",
+     "tasks": [
+       {
+         "label": "Build",
+         "type": "shell",
+         "command": "npm run build"
+       },
+       {
+         "label": "Test",
+         "type": "shell",
+         "command": "npm test"
+       },
+       {
+         "label": "Run Script",
+         "type": "shell",
+         "command": "npm run ${input:scriptName}"
+       }
+     ],
+     "inputs": [
+       {
+         "id": "scriptName",
+         "type": "pickString",
+         "description": "Which script to run?",
+         "options": ["dev", "build", "test", "lint"]
+       }
+     ]
+   }
+   ```
+
+2. The extension auto-configures the MCP server on startup with e.g.: 
+```json
+{
+  "servers": {
+    "ignition-mcp": {
+      "url": "http://localhost:<dynamic-port>/sse"
+    }
+  }
+}
+```
+
+3. Ask your AI assistant to run tasks or start debugging:
+   - "Run the Build task"
+   - "List all available tasks"
+   - "Run tests and show me the output"
+   - "Run the lint script" (the AI will use the Run Script task with scriptName="lint")
+   - "Start debugging the app"
+   - "Stop the debug session"
 
 ## 🔌 MCP Tools
 
@@ -109,111 +123,21 @@ Each launch configuration defined in your workspace becomes a tool named `launch
 
 ### 📋 Task Utility Tools
 
-#### list_tasks
-
-List all available VS Code tasks with their metadata (name, type, source, isBackground).
-
-**Parameters**: None
-
-**Returns**: Array of task objects.
-
-#### get_task_status
-
-Get the status of a task execution.
-
-**Parameters**:
-- `executionId` (string): The execution ID from a background task
-
-**Returns**: Object with status (running/completed/failed/cancelled), timing info, and exit code.
-
-#### get_task_output
-
-Get the captured output from a task execution.
-
-**Parameters**:
-- `executionId` (string): The execution ID from a task
-
-**Returns**: Object with the captured terminal output.
-
-#### cancel_task
-
-Cancel a running task.
-
-**Parameters**:
-- `executionId` (string): The execution ID from a task
-
-**Returns**: Object with success status.
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `list_tasks` | List all available VS Code tasks with metadata | None |
+| `get_task_status` | Get status of a task execution (running/completed/failed/cancelled) | `executionId` |
+| `get_task_output` | Get captured terminal output from a task | `executionId` |
+| `cancel_task` | Cancel a running task | `executionId` |
 
 ### 🎯 Launch Utility Tools
 
-#### list_launch_configs
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `list_launch_configs` | List all available launch configurations with metadata | None |
+| `get_debug_status` | Get status of active debug sessions | None |
+| `stop_debug_session` | Stop a debug session | `sessionId` (optional) |
 
-List all available VS Code launch configurations with their metadata.
-
-**Parameters**: None
-
-**Returns**: Array of config objects with name, type, request, preLaunchTask, and inputs.
-
-#### get_debug_status
-
-Get the status of active debug sessions.
-
-**Parameters**: None
-
-**Returns**: Object with array of active sessions (id, name, type, status, startTime).
-
-#### stop_debug_session
-
-Stop a debug session.
-
-**Parameters**:
-- `sessionId` (string, optional): The session ID to stop. If omitted, stops the active session.
-
-**Returns**: Object with success status.
-
-## 📖 Example Workflow
-
-1. Define tasks in `.vscode/tasks.json`:
-   ```json
-   {
-     "version": "2.0.0",
-     "tasks": [
-       {
-         "label": "Build",
-         "type": "shell",
-         "command": "npm run build"
-       },
-       {
-         "label": "Test",
-         "type": "shell",
-         "command": "npm test"
-       },
-       {
-         "label": "Run Script",
-         "type": "shell",
-         "command": "npm run ${input:scriptName}"
-       }
-     ],
-     "inputs": [
-       {
-         "id": "scriptName",
-         "type": "pickString",
-         "description": "Which script to run?",
-         "options": ["dev", "build", "test", "lint"]
-       }
-     ]
-   }
-   ```
-
-2. The extension auto-configures the MCP server on startup
-
-3. Ask your AI assistant to run tasks or start debugging:
-   - "Run the Build task"
-   - "List all available tasks"
-   - "Run tests and show me the output"
-   - "Run the lint script" (the AI will use the Run Script task with scriptName="lint")
-   - "Start debugging the app"
-   - "Stop the debug session"
 
 ## 📊 Status Bar
 
@@ -258,26 +182,17 @@ The extension shows a flame icon in the VS Code status bar. Hover to see the por
 
 5. Press Ctrl+Shift+F5 (or Cmd+Shift+F5 on Mac) to reload the extension
 
-
 ## 🔧 Troubleshooting
 
-### Server won't start
+### Status bar shows "Served by another window"
 
-- Check if port 3500 is already in use
-- Try changing the port in settings
-- Check the Output panel for errors
+Another VS Code window with the same workspace is already running the MCP server. Use "Take Over Server" from the status bar menu if you want this window to handle MCP requests.
 
 ### Tasks not appearing
 
-- Make sure tasks are defined in `.vscode/tasks.json`
-- Reload VS Code window
-- Check that tasks are valid (no syntax errors)
-
-### Output not captured
-
-- Terminal output capture requires VS Code 1.85+
-- Some task types may not expose output
-- Long-running tasks accumulate output over time
+- Ensure tasks are defined in `.vscode/tasks.json`
+- Reload the VS Code window
+- Check that task definitions have no syntax errors
 
 ## 🖥️ Headless Mode
 

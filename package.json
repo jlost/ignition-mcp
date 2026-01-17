@@ -55,17 +55,7 @@
         "command": "ignition-mcp.takeover",
         "title": "Ignition MCP: Take Over Server"
       }
-    ],
-    "configuration": {
-      "title": "Ignition MCP",
-      "properties": {
-        "ignition-mcp.port": {
-          "type": "number",
-          "default": 3500,
-          "description": "Base port for the MCP server (actual port is computed from workspace path to avoid conflicts)"
-        }
-      }
-    }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
