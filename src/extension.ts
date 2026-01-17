@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import { MCPServer } from './server/mcpServer';
 import { TaskManager } from './tasks/taskManager';
 import { LaunchManager } from './launch/launchManager';
-import { configureGlobal, autoConfigureOnStart } from './config/autoConfig';
+import { configureGlobal, autoConfigureOnStart, checkGlobalConfigConflicts, removeFromGlobalConfigs } from './config/autoConfig';
+import * as path from 'path';
 import { getWorkspacePort, checkServerOwnership, requestShutdown, sleep } from './utils/portUtils';
 
 type ServerState = 'running' | 'deferred' | 'stopped';
@@ -117,6 +118,32 @@ async function enableServer() {
         vscode.window.showInformationMessage(
           `MCP server started on port ${currentPort}. Created ${pathNames.join(', ')}.`
         );
+      }
+    }
+    const conflicts = checkGlobalConfigConflicts(currentPort);
+    if (conflicts.length > 0) {
+      const names = conflicts.map(c => path.basename(c.path)).join(', ');
+      log(`WARNING: Global config(s) have ignition-mcp at different port: ${names}`);
+      const action = await vscode.window.showWarningMessage(
+        `Global MCP config has ignition-mcp at port ${conflicts[0].configuredPort}, but server is running on ${currentPort}. This may cause connection failures.`,
+        'Update Global',
+        'Remove from Global',
+        'Ignore'
+      );
+      if (action === 'Update Global') {
+        await configureGlobal(currentPort);
+      } else if (action === 'Remove from Global') {
+        const result = removeFromGlobalConfigs(conflicts.map(c => c.path));
+        if (result.removed.length > 0) {
+          const removedNames = result.removed.map(p => path.basename(p)).join(', ');
+          log(`Removed ignition-mcp from: ${removedNames}`);
+          vscode.window.showInformationMessage(`Removed ignition-mcp from ${removedNames}`);
+        }
+        if (result.failed.length > 0) {
+          const failedNames = result.failed.map(p => path.basename(p)).join(', ');
+          log(`Failed to remove from: ${failedNames}`);
+          vscode.window.showErrorMessage(`Failed to remove from: ${failedNames}`);
+        }
       }
     }
   } catch (error) {

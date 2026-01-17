@@ -13,6 +13,12 @@ A VS Code extension that exposes tasks and launch configurations via MCP (Model 
 
 **Works with:** VS Code + Copilot, Cursor, Claude Code, Claude Desktop, and any MCP-compatible client.
 
+### 💡 Why Not Just Use Terminal Commands?
+
+AI agents typically run `npm run build` in a shell. But your `tasks.json` and `launch.json` define more than commands - they include problem matchers, task dependencies, environment setup, input variables, and debug configurations.
+
+With Ignition MCP, your AI uses VS Code's task API directly: errors populate the Problems panel, `dependsOn` chains run automatically, input variables can be provided by AI or prompt the user, and debug sessions attach properly with breakpoints.
+
 ## ✨ Features
 
 - 🌐 **MCP Server**: Runs an HTTP/SSE MCP server in the background
@@ -141,9 +147,9 @@ Each launch configuration defined in your workspace becomes a tool named `launch
 
 The extension shows a flame icon in the VS Code status bar. Hover to see the port, click for options.
 
-## 📦 Installation
+## 🛠️ Development
 
-### From Source
+### Install From Source
 
 1. Clone or download this repository
 2. Install dependencies:
@@ -163,7 +169,7 @@ The extension shows a flame icon in the VS Code status bar. Hover to see the por
    - Click "..." menu -> "Install from VSIX..."
    - Select the generated `.vsix` file
 
-### 🛠️ Development
+### Extension Development Host
 
 1. Install dependencies:
    ```bash
@@ -191,12 +197,6 @@ Another VS Code window with the same workspace is already running the MCP server
 - Ensure tasks are defined in `.vscode/tasks.json`
 - Reload the VS Code window
 - Check that task definitions have no syntax errors
-
-## 🖥️ Headless Mode
-
-Run Ignition MCP without a VS Code GUI for use with AI agents like `cursor-agent` or `claude` CLI. This allows headless task execution and debugging using VS Code Server.
-
-See [docs/HEADLESS_MODE.md](docs/HEADLESS_MODE.md) for complete setup instructions.
 
 ## 📄 License
 

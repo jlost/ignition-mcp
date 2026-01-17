@@ -248,3 +248,47 @@ export async function configureGlobal(port: number): Promise<void> {
     vscode.window.showErrorMessage(`Failed to configure: ${error}`);
   }
 }
+
+export interface GlobalConfigConflict {
+  path: string;
+  configuredPort: number;
+}
+
+export function removeFromGlobalConfigs(configPaths: string[]): { removed: string[]; failed: string[] } {
+  const removed: string[] = [];
+  const failed: string[] = [];
+  for (const configPath of configPaths) {
+    try {
+      const config = readConfig(configPath);
+      if (!config) continue;
+      const serversKey = config.mcpServers ? 'mcpServers' : config.servers ? 'servers' : null;
+      if (!serversKey || !config[serversKey]?.[SERVER_NAME]) continue;
+      delete config[serversKey]![SERVER_NAME];
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+      removed.push(configPath);
+    } catch {
+      failed.push(configPath);
+    }
+  }
+  return { removed, failed };
+}
+
+export function checkGlobalConfigConflicts(runningPort: number): GlobalConfigConflict[] {
+  const conflicts: GlobalConfigConflict[] = [];
+  const globalPaths = getGlobalConfigOptions();
+  for (const opt of globalPaths) {
+    const config = readConfig(opt.path);
+    if (!config) continue;
+    const servers = config.mcpServers || config.servers;
+    const serverConfig = servers?.[SERVER_NAME];
+    if (!serverConfig?.url) continue;
+    const match = serverConfig.url.match(/:(\d+)\//);
+    if (match) {
+      const configuredPort = parseInt(match[1], 10);
+      if (configuredPort !== runningPort) {
+        conflicts.push({ path: opt.path, configuredPort });
+      }
+    }
+  }
+  return conflicts;
+}
