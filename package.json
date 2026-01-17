@@ -2,7 +2,7 @@
   "name": "ignition-mcp",
   "displayName": "Ignition MCP - Tasks & Launch",
   "description": "Expose Tasks & Launch configurations to MCP! Let AI assistants run builds, tests, and debug sessions",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "preview": true,
   "publisher": "jostrand",
   "license": "MIT",
