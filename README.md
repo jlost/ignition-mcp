@@ -1,4 +1,4 @@
-<img src="docs/ignition-mcp-logo.jpg" alt="Ignition MCP Logo" width="150" align="right" style="transform: scaleX(-1)" />
+<img src="docs/ignition-mcp-logo-flipped.jpg" alt="Ignition MCP Logo" width="150" align="right" />
 
 [![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/jostrand.ignition-mcp?label=VS%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=jostrand.ignition-mcp)
 [![Installs](https://img.shields.io/visual-studio-marketplace/i/jostrand.ignition-mcp)](https://marketplace.visualstudio.com/items?itemName=jostrand.ignition-mcp)
