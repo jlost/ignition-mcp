@@ -88,9 +88,12 @@ export function autoConfigureOnStart(port: number): AutoConfigResult {
   if (!workspaceRoot) {
     return { configured: false, paths: [], created: false };
   }
-  const existingConfigs = PROJECT_CONFIG_PATHS
-    .map(p => path.join(workspaceRoot, p))
-    .filter(p => fs.existsSync(p));
+  const ide = detectIDE();
+  const ideDir = ide === 'cursor' ? '.cursor' : '.vscode';
+  const ideConfigPath = path.join(workspaceRoot, ideDir, 'mcp.json');
+  const rootConfigPath = path.join(workspaceRoot, '.mcp.json');
+  // Check for existing configs: IDE-specific path and .mcp.json
+  const existingConfigs = [ideConfigPath, rootConfigPath].filter(p => fs.existsSync(p));
   if (existingConfigs.length > 0) {
     const updated: string[] = [];
     for (const configPath of existingConfigs) {
@@ -100,23 +103,9 @@ export function autoConfigureOnStart(port: number): AutoConfigResult {
     }
     return { configured: updated.length > 0, paths: updated, created: false };
   }
-  const vscodeDir = path.join(workspaceRoot, '.vscode');
-  const cursorDir = path.join(workspaceRoot, '.cursor');
-  if (fs.existsSync(vscodeDir)) {
-    const configPath = path.join(vscodeDir, 'mcp.json');
-    const success = writeConfig(configPath, port);
-    return { configured: success, paths: success ? [configPath] : [], created: success };
-  }
-  if (fs.existsSync(cursorDir)) {
-    const configPath = path.join(cursorDir, 'mcp.json');
-    const success = writeConfig(configPath, port);
-    return { configured: success, paths: success ? [configPath] : [], created: success };
-  }
-  const ide = detectIDE();
-  const dir = ide === 'cursor' ? '.cursor' : '.vscode';
-  const configPath = path.join(workspaceRoot, dir, 'mcp.json');
-  const success = writeConfig(configPath, port);
-  return { configured: success, paths: success ? [configPath] : [], created: success };
+  // No existing config, create in IDE-specific directory
+  const success = writeConfig(ideConfigPath, port);
+  return { configured: success, paths: success ? [ideConfigPath] : [], created: success };
 }
 
 interface GlobalConfigOption {
