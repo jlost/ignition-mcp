@@ -1,5 +1,12 @@
 <img src="docs/ignition-mcp-logo.jpg" alt="Ignition MCP Logo" width="150" align="right" />
 
+[![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/jostrand.ignition-mcp?label=VS%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=jostrand.ignition-mcp)
+[![Installs](https://img.shields.io/visual-studio-marketplace/i/jostrand.ignition-mcp)](https://marketplace.visualstudio.com/items?itemName=jostrand.ignition-mcp)
+[![Open VSX](https://img.shields.io/open-vsx/v/jostrand/ignition-mcp?label=Open%20VSX)](https://open-vsx.org/extension/jostrand/ignition-mcp)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub Release](https://img.shields.io/github/v/release/jlost/ignition-mcp)](https://github.com/jlost/ignition-mcp/releases)
+[![Power Level](https://img.shields.io/badge/power-%3E9000-ff6600)](https://www.youtube.com/watch?v=SiMHTK15Pik)
+
 # 🔥 Ignition MCP
 
 A VS Code extension that exposes tasks and launch configurations via MCP (Model Context Protocol), letting AI assistants run your builds, tests, and debug sessions.
@@ -16,52 +23,17 @@ A VS Code extension that exposes tasks and launch configurations via MCP (Model 
 - 🎯 **Debug Management**: List, start, and stop debug sessions
 - 🔧 **Auto-Configuration**: Automatic setup for VS Code, Cursor, and Claude
 
-## 📦 Installation
+## ⚙️ Configuration
 
-### From Source
+Configure the extension in VS Code settings:
 
-1. Clone or download this repository
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Build the extension:
-   ```bash
-   npm run build
-   ```
-4. Package the extension:
-   ```bash
-   npx vsce package
-   ```
-5. Install in VS Code/Cursor:
-   - Open the Extensions view
-   - Click "..." menu -> "Install from VSIX..."
-   - Select the generated `.vsix` file
-
-### 🛠️ Development
-
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-2. Open this folder in VS Code/Cursor
-
-3. Press F5 to launch the Extension Development Host
-   - This automatically runs the watch build task
-   - A new VS Code window opens with the extension loaded
-
-4. Make changes to the source files - they rebuild automatically
-
-5. Press Ctrl+Shift+F5 (or Cmd+Shift+F5 on Mac) to reload the extension
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `ignition-mcp.port` | 3500 | Port for the MCP server |
 
 ## 🚀 Usage
 
-### Starting the Server
-
-The MCP server starts automatically when VS Code/Cursor opens.
-
-### Auto-Configuration (Project-Local)
+### MCP Client Configuration (Project-Local)
 
 On startup, the extension automatically configures project-local MCP settings:
 
@@ -71,7 +43,7 @@ On startup, the extension automatically configures project-local MCP settings:
 
 This means your AI assistant will automatically discover the MCP server when you open the project.
 
-### Manual Configuration (Global)
+### MCP Client Configuration (Global)
 
 For global configuration (applies to all projects), run **"Ignition MCP: Configure MCP Client"** from the Command Palette. This shows options for:
 
@@ -80,23 +52,11 @@ For global configuration (applies to all projects), run **"Ignition MCP: Configu
 - Claude Desktop config (platform-specific path)
 - Custom path (enter any location)
 
-### Config File Formats
+### MCP Config Example
 
-**VS Code Copilot** (`.vscode/mcp.json`):
 ```json
 {
   "servers": {
-    "ignition-mcp": {
-      "url": "http://localhost:3500/sse"
-    }
-  }
-}
-```
-
-**Cursor / Claude** (`.cursor/mcp.json`, `.mcp.json`, `~/.cursor/mcp.json`, `~/.claude.json`):
-```json
-{
-  "mcpServers": {
     "ignition-mcp": {
       "url": "http://localhost:3500/sse"
     }
@@ -211,14 +171,6 @@ Stop a debug session.
 
 **Returns**: Object with success status.
 
-## ⚙️ Configuration
-
-Configure the extension in VS Code settings:
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `ignition-mcp.port` | 3500 | Port for the MCP server |
-
 ## 📖 Example Workflow
 
 1. Define tasks in `.vscode/tasks.json`:
@@ -266,6 +218,46 @@ Configure the extension in VS Code settings:
 ## 📊 Status Bar
 
 The extension shows a flame icon in the VS Code status bar. Hover to see the port, click for options.
+
+## 📦 Installation
+
+### From Source
+
+1. Clone or download this repository
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Build the extension:
+   ```bash
+   npm run build
+   ```
+4. Package the extension:
+   ```bash
+   npx vsce package
+   ```
+5. Install in VS Code/Cursor:
+   - Open the Extensions view
+   - Click "..." menu -> "Install from VSIX..."
+   - Select the generated `.vsix` file
+
+### 🛠️ Development
+
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+2. Open this folder in VS Code/Cursor
+
+3. Press F5 to launch the Extension Development Host
+   - This automatically runs the watch build task
+   - A new VS Code window opens with the extension loaded
+
+4. Make changes to the source files - they rebuild automatically
+
+5. Press Ctrl+Shift+F5 (or Cmd+Shift+F5 on Mac) to reload the extension
+
 
 ## 🔧 Troubleshooting
 
