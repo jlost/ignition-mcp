@@ -24,9 +24,11 @@ With Ignition MCP, your AI uses VS Code's task API directly: errors populate the
 - 🌐 **MCP Server**: Runs an HTTP/SSE MCP server in the background
 - ⚡ **Task Execution**: Run any VS Code task (from tasks.json) via MCP
 - 🐛 **Debug Sessions**: Start any VS Code launch configuration (from launch.json) via MCP
-- 📤 **Output Capture**: Get real-time task output
+- 🔴 **Breakpoint Management**: Add, remove, and list breakpoints programmatically
+- 🔍 **Variable Inspection**: Get variables and evaluate expressions when paused
+- 📤 **Output Capture**: Get real-time task and debug console output
 - 📋 **Task Management**: List, run, cancel, and monitor task status
-- 🎯 **Debug Management**: List, start, and stop debug sessions
+- 🎯 **Debug Management**: List, start, stop, and control debug sessions
 - 🔧 **Auto-Configuration**: Automatic setup for VS Code, Cursor, and Claude
 
 ## 🚀 Usage Example
@@ -80,7 +82,10 @@ With Ignition MCP, your AI uses VS Code's task API directly: errors populate the
    - "Run tests and show me the output"
    - "Run the lint script" (the AI will use the Run Script task with scriptName="lint")
    - "Start debugging the app"
-   - "Stop the debug session"
+   - "Set a breakpoint at line 42 in main.ts"
+   - "What are the current variable values?"
+   - "Evaluate `user.permissions` in the current context"
+   - "Continue execution"
 
 ## 🔌 MCP Tools
 
@@ -155,13 +160,31 @@ The same `mcp` block works in launch configurations in `launch.json`.
 | `get_task_output` | Get captured terminal output from a task | `executionId` |
 | `cancel_task` | Cancel a running task | `executionId` |
 
-### 🎯 Launch Utility Tools
+### 🎯 Debug Utility Tools
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `list_launch_configs` | List all available launch configurations with metadata | None |
-| `get_debug_status` | Get status of active debug sessions | None |
+| `get_debug_status` | Get status of active debug sessions (running/paused/terminated) | None |
+| `get_debug_output` | Get captured debug console output | `sessionId` (optional) |
+| `get_stack_trace` | Get the call stack from a paused session | `sessionId` (optional) |
 | `stop_debug_session` | Stop a debug session | `sessionId` (optional) |
+
+### 🔴 Breakpoint Tools
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `add_breakpoint` | Set a breakpoint (visible in VS Code gutter) | `file`, `line`, `condition` (optional) |
+| `remove_breakpoint` | Remove a breakpoint | `file`, `line` |
+| `list_breakpoints` | List all current breakpoints | None |
+
+### 🔍 Inspection Tools
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `get_variables` | Get variables from current scope when paused | `sessionId` (optional), `frameId` (optional) |
+| `evaluate` | Evaluate an expression in debug context | `expression`, `sessionId` (optional), `frameId` (optional) |
+| `continue_execution` | Resume a paused debug session | `sessionId` (optional), `threadId` (optional) |
 
 ## 🎮 Available Commands
 

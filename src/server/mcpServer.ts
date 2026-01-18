@@ -181,6 +181,107 @@ export class MCPServer {
         };
       }
     );
+    this.mcpServer.tool(
+      'add_breakpoint',
+      'Add a breakpoint at a specific file and line. The breakpoint will be visible in VS Code.',
+      {
+        file: z.string().describe('Absolute path to the source file'),
+        line: z.number().describe('Line number (1-based)'),
+        condition: z.string().optional().describe('Optional condition expression for conditional breakpoint')
+      },
+      async ({ file, line, condition }) => {
+        const result = await this.launchManager.addBreakpoint(file, line, condition);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify(result, null, 2)
+          }]
+        };
+      }
+    );
+    this.mcpServer.tool(
+      'remove_breakpoint',
+      'Remove a breakpoint at a specific file and line',
+      {
+        file: z.string().describe('Absolute path to the source file'),
+        line: z.number().describe('Line number (1-based)')
+      },
+      async ({ file, line }) => {
+        const result = await this.launchManager.removeBreakpoint(file, line);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify(result, null, 2)
+          }]
+        };
+      }
+    );
+    this.mcpServer.tool(
+      'list_breakpoints',
+      'List all breakpoints currently set in VS Code',
+      {},
+      async () => {
+        const breakpoints = this.launchManager.listBreakpoints();
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify(breakpoints, null, 2)
+          }]
+        };
+      }
+    );
+    this.mcpServer.tool(
+      'get_variables',
+      'Get variables from the current scope of a paused debug session. Returns local variables, closure variables, and globals.',
+      {
+        sessionId: z.string().optional().describe('The session ID (omit to use the active session)'),
+        frameId: z.number().optional().describe('Stack frame ID (omit to use the topmost frame)')
+      },
+      async ({ sessionId, frameId }) => {
+        const result = await this.launchManager.getVariables(sessionId, frameId);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify(result, null, 2)
+          }]
+        };
+      }
+    );
+    this.mcpServer.tool(
+      'evaluate',
+      'Evaluate an expression in the context of a paused debug session',
+      {
+        expression: z.string().describe('The expression to evaluate'),
+        sessionId: z.string().optional().describe('The session ID (omit to use the active session)'),
+        frameId: z.number().optional().describe('Stack frame ID (omit to use the topmost frame)')
+      },
+      async ({ expression, sessionId, frameId }) => {
+        const result = await this.launchManager.evaluate(expression, sessionId, frameId);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify(result, null, 2)
+          }]
+        };
+      }
+    );
+    this.mcpServer.tool(
+      'continue_execution',
+      'Resume execution of a paused debug session',
+      {
+        sessionId: z.string().optional().describe('The session ID (omit to use the active session)'),
+        threadId: z.number().optional().describe('Thread ID to continue (omit to use the stopped thread)')
+      },
+      async ({ sessionId, threadId }) => {
+        const result = await this.launchManager.continueExecution(sessionId, threadId);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify(result, null, 2)
+          }]
+        };
+      }
+    );
   }
 
   private async registerTaskTools() {

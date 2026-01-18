@@ -83,6 +83,63 @@ export interface DebugOutputResult {
   error?: string;
 }
 
+export interface BreakpointInfo {
+  id: string;
+  file: string;
+  line: number;
+  enabled: boolean;
+  condition?: string;
+  hitCondition?: string;
+  logMessage?: string;
+}
+
+export interface AddBreakpointResult {
+  success: boolean;
+  id?: string;
+  error?: string;
+}
+
+export interface RemoveBreakpointResult {
+  success: boolean;
+  removed?: number;
+  error?: string;
+}
+
+export interface VariableInfo {
+  name: string;
+  value: string;
+  type?: string;
+  variablesReference: number;
+}
+
+export interface ScopeInfo {
+  name: string;
+  variablesReference: number;
+  variables: VariableInfo[];
+}
+
+export interface GetVariablesResult {
+  success: boolean;
+  sessionId?: string;
+  frameId?: number;
+  scopes?: ScopeInfo[];
+  error?: string;
+}
+
+export interface EvaluateResult {
+  success: boolean;
+  result?: string;
+  type?: string;
+  variablesReference?: number;
+  error?: string;
+}
+
+export interface ContinueResult {
+  success: boolean;
+  allThreadsContinued?: boolean;
+  error?: string;
+}
+
 export class LaunchManager implements vscode.Disposable {
   private sessions: Map<string, DebugSessionInfo> = new Map();
   private outputs: Map<string, string[]> = new Map();
@@ -376,6 +433,185 @@ export class LaunchManager implements vscode.Disposable {
       return { success: true, sessionId: targetId, threadId, stackFrames };
     } catch (error) {
       return { success: false, sessionId: targetId, error: `Failed to get stack trace: ${String(error)}` };
+    }
+  }
+
+  async addBreakpoint(file: string, line: number, condition?: string): Promise<AddBreakpointResult> {
+    try {
+      const uri = vscode.Uri.file(file);
+      const location = new vscode.Location(uri, new vscode.Position(line - 1, 0));
+      const breakpoint = new vscode.SourceBreakpoint(location, true, condition);
+      vscode.debug.addBreakpoints([breakpoint]);
+      const id = `${file}:${line}`;
+      return { success: true, id };
+    } catch (error) {
+      return { success: false, error: `Failed to add breakpoint: ${String(error)}` };
+    }
+  }
+
+  async removeBreakpoint(file: string, line: number): Promise<RemoveBreakpointResult> {
+    try {
+      const targetLine = line - 1;
+      const toRemove = vscode.debug.breakpoints.filter((bp) => {
+        if (bp instanceof vscode.SourceBreakpoint) {
+          const bpUri = bp.location.uri.fsPath;
+          const bpLine = bp.location.range.start.line;
+          return bpUri === file && bpLine === targetLine;
+        }
+        return false;
+      });
+      if (toRemove.length === 0) {
+        return { success: false, error: `No breakpoint found at ${file}:${line}` };
+      }
+      vscode.debug.removeBreakpoints(toRemove);
+      return { success: true, removed: toRemove.length };
+    } catch (error) {
+      return { success: false, error: `Failed to remove breakpoint: ${String(error)}` };
+    }
+  }
+
+  listBreakpoints(): BreakpointInfo[] {
+    const breakpoints: BreakpointInfo[] = [];
+    for (const bp of vscode.debug.breakpoints) {
+      if (bp instanceof vscode.SourceBreakpoint) {
+        breakpoints.push({
+          id: `${bp.location.uri.fsPath}:${bp.location.range.start.line + 1}`,
+          file: bp.location.uri.fsPath,
+          line: bp.location.range.start.line + 1,
+          enabled: bp.enabled,
+          condition: bp.condition,
+          hitCondition: bp.hitCondition,
+          logMessage: bp.logMessage
+        });
+      }
+    }
+    return breakpoints;
+  }
+
+  async getVariables(sessionId?: string, frameId?: number): Promise<GetVariablesResult> {
+    const targetId = sessionId || vscode.debug.activeDebugSession?.id;
+    if (!targetId) {
+      return { success: false, error: 'No active debug session' };
+    }
+    const info = this.sessions.get(targetId);
+    if (!info) {
+      return { success: false, sessionId: targetId, error: 'Session not found' };
+    }
+    if (info.state !== 'paused') {
+      return { success: false, sessionId: targetId, error: `Session is not paused (state: ${info.state})` };
+    }
+    const session = this.findSessionById(targetId);
+    if (!session) {
+      return { success: false, sessionId: targetId, error: 'Debug session not found' };
+    }
+    try {
+      let targetFrameId = frameId;
+      if (targetFrameId === undefined) {
+        const threadId = info.stoppedThreadId;
+        if (!threadId) {
+          return { success: false, sessionId: targetId, error: 'No stopped thread ID available' };
+        }
+        const stackResponse = await session.customRequest('stackTrace', { threadId, startFrame: 0, levels: 1 });
+        if (!stackResponse.stackFrames || stackResponse.stackFrames.length === 0) {
+          return { success: false, sessionId: targetId, error: 'No stack frames available' };
+        }
+        targetFrameId = stackResponse.stackFrames[0].id;
+      }
+      const scopesResponse = await session.customRequest('scopes', { frameId: targetFrameId });
+      const scopes: ScopeInfo[] = [];
+      for (const scope of scopesResponse.scopes || []) {
+        const varsResponse = await session.customRequest('variables', { variablesReference: scope.variablesReference });
+        const variables: VariableInfo[] = (varsResponse.variables || []).map((v: Record<string, unknown>) => ({
+          name: v.name as string,
+          value: v.value as string,
+          type: v.type as string | undefined,
+          variablesReference: (v.variablesReference as number) || 0
+        }));
+        scopes.push({
+          name: scope.name as string,
+          variablesReference: scope.variablesReference as number,
+          variables
+        });
+      }
+      return { success: true, sessionId: targetId, frameId: targetFrameId, scopes };
+    } catch (error) {
+      return { success: false, sessionId: targetId, error: `Failed to get variables: ${String(error)}` };
+    }
+  }
+
+  async evaluate(expression: string, sessionId?: string, frameId?: number): Promise<EvaluateResult> {
+    const targetId = sessionId || vscode.debug.activeDebugSession?.id;
+    if (!targetId) {
+      return { success: false, error: 'No active debug session' };
+    }
+    const info = this.sessions.get(targetId);
+    if (!info) {
+      return { success: false, error: 'Session not found' };
+    }
+    if (info.state !== 'paused') {
+      return { success: false, error: `Session is not paused (state: ${info.state})` };
+    }
+    const session = this.findSessionById(targetId);
+    if (!session) {
+      return { success: false, error: 'Debug session not found' };
+    }
+    try {
+      let targetFrameId = frameId;
+      if (targetFrameId === undefined) {
+        const threadId = info.stoppedThreadId;
+        if (!threadId) {
+          return { success: false, error: 'No stopped thread ID available' };
+        }
+        const stackResponse = await session.customRequest('stackTrace', { threadId, startFrame: 0, levels: 1 });
+        if (!stackResponse.stackFrames || stackResponse.stackFrames.length === 0) {
+          return { success: false, error: 'No stack frames available' };
+        }
+        targetFrameId = stackResponse.stackFrames[0].id;
+      }
+      const response = await session.customRequest('evaluate', {
+        expression,
+        frameId: targetFrameId,
+        context: 'repl'
+      });
+      return {
+        success: true,
+        result: response.result as string,
+        type: response.type as string | undefined,
+        variablesReference: (response.variablesReference as number) || 0
+      };
+    } catch (error) {
+      return { success: false, error: `Evaluation failed: ${String(error)}` };
+    }
+  }
+
+  async continueExecution(sessionId?: string, threadId?: number): Promise<ContinueResult> {
+    const targetId = sessionId || vscode.debug.activeDebugSession?.id;
+    if (!targetId) {
+      return { success: false, error: 'No active debug session' };
+    }
+    const info = this.sessions.get(targetId);
+    if (!info) {
+      return { success: false, error: 'Session not found' };
+    }
+    if (info.state !== 'paused') {
+      return { success: false, error: `Session is not paused (state: ${info.state})` };
+    }
+    const session = this.findSessionById(targetId);
+    if (!session) {
+      return { success: false, error: 'Debug session not found' };
+    }
+    try {
+      const targetThreadId = threadId || info.stoppedThreadId;
+      if (!targetThreadId) {
+        return { success: false, error: 'No thread ID available' };
+      }
+      const response = await session.customRequest('continue', { threadId: targetThreadId });
+      return {
+        success: true,
+        allThreadsContinued: response.allThreadsContinued as boolean | undefined
+      };
+    } catch (error) {
+      return { success: false, error: `Failed to continue: ${String(error)}` };
     }
   }
 
