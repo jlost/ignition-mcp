@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as cp from 'child_process';
 
 export interface TaskInputDefinition {
   id: string;
@@ -8,6 +9,10 @@ export interface TaskInputDefinition {
   description?: string;
   default?: string;
   options?: string[];
+}
+
+export interface McpOptions {
+  returnOutput?: 'always' | 'onFailure' | 'never';
 }
 
 export interface TaskInfo {
@@ -19,6 +24,7 @@ export interface TaskInfo {
   detail?: string;
   inputs?: TaskInputDefinition[];
   rawCommand?: string;
+  mcpOptions?: McpOptions;
 }
 
 export interface TaskExecutionInfo {
@@ -52,6 +58,73 @@ export interface TaskCancelResult {
   error?: string;
 }
 
+class OutputCapturePty implements vscode.Pseudoterminal {
+  private writeEmitter = new vscode.EventEmitter<string>();
+  private closeEmitter = new vscode.EventEmitter<number>();
+  onDidWrite: vscode.Event<string> = this.writeEmitter.event;
+  onDidClose: vscode.Event<number> = this.closeEmitter.event;
+  private outputBuffer: string[] = [];
+  private childProcess: cp.ChildProcess | null = null;
+  private onOutputCallback?: (output: string) => void;
+  private onExitCallback?: (code: number) => void;
+
+  constructor(
+    private command: string,
+    private cwd: string,
+    private env: NodeJS.ProcessEnv,
+    onOutput: (output: string) => void,
+    onExit: (code: number) => void
+  ) {
+    this.onOutputCallback = onOutput;
+    this.onExitCallback = onExit;
+  }
+
+  open(): void {
+    const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh';
+    const shellArgs = process.platform === 'win32' ? ['/c', this.command] : ['-c', this.command];
+    this.childProcess = cp.spawn(shell, shellArgs, {
+      cwd: this.cwd,
+      env: this.env,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    const handleData = (data: Buffer) => {
+      const text = data.toString();
+      this.outputBuffer.push(text);
+      this.onOutputCallback?.(this.outputBuffer.join(''));
+      const displayText = text.replace(/\n/g, '\r\n');
+      this.writeEmitter.fire(displayText);
+    };
+    this.childProcess.stdout?.on('data', handleData);
+    this.childProcess.stderr?.on('data', handleData);
+    this.childProcess.on('exit', (code) => {
+      const exitCode = code ?? 0;
+      this.onExitCallback?.(exitCode);
+    });
+    this.childProcess.on('close', (code) => {
+      const exitCode = code ?? 0;
+      this.closeEmitter.fire(exitCode);
+    });
+    this.childProcess.on('error', (err) => {
+      const errMsg = `Error: ${err.message}\r\n`;
+      this.outputBuffer.push(errMsg);
+      this.onOutputCallback?.(this.outputBuffer.join(''));
+      this.writeEmitter.fire(errMsg);
+      this.onExitCallback?.(-1);
+      this.closeEmitter.fire(-1);
+    });
+  }
+
+  close(): void {
+    if (this.childProcess && !this.childProcess.killed) {
+      this.childProcess.kill();
+    }
+  }
+
+  getOutput(): string {
+    return this.outputBuffer.join('');
+  }
+}
+
 export class TaskManager implements vscode.Disposable {
   private executions: Map<string, TaskExecutionInfo> = new Map();
   private outputs: Map<string, string> = new Map();
@@ -70,12 +143,15 @@ export class TaskManager implements vscode.Disposable {
     const tasks = await vscode.tasks.fetchTasks();
     const tasksJsonData = this.readTasksJson();
     const inputDefinitions = tasksJsonData?.inputs || [];
+    const rawTasks = tasksJsonData?.tasks || [];
     return tasks.map((task) => {
       const rawCommand = this.getRawCommand(task);
       const usedInputIds = this.findInputReferences(rawCommand);
       const inputs = usedInputIds.length > 0
         ? inputDefinitions.filter((inp: TaskInputDefinition) => usedInputIds.includes(inp.id))
         : undefined;
+      const rawTaskEntry = rawTasks.find((t) => t.label === task.name);
+      const mcpOptions = rawTaskEntry?.mcp;
       return {
         name: task.name,
         source: task.source,
@@ -84,7 +160,8 @@ export class TaskManager implements vscode.Disposable {
         isBackground: task.isBackground,
         detail: task.detail,
         inputs,
-        rawCommand: usedInputIds.length > 0 ? rawCommand : undefined
+        rawCommand: usedInputIds.length > 0 ? rawCommand : undefined,
+        mcpOptions
       };
     });
   }
@@ -94,7 +171,10 @@ export class TaskManager implements vscode.Disposable {
     return tasks.find((t) => t.name === taskName);
   }
 
-  private readTasksJson(): { inputs?: TaskInputDefinition[]; tasks?: unknown[] } | null {
+  private readTasksJson(): { 
+    inputs?: TaskInputDefinition[]; 
+    tasks?: Array<{ label?: string; mcp?: McpOptions }> 
+  } | null {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
       return null;
@@ -158,13 +238,7 @@ export class TaskManager implements vscode.Disposable {
       return { success: false, error: `Task "${taskName}" not found` };
     }
     try {
-      let taskToRun = task;
-      if (inputValues && Object.keys(inputValues).length > 0) {
-        taskToRun = this.createTaskWithInputs(task, inputValues);
-      }
-      const execution = await vscode.tasks.executeTask(taskToRun);
       const executionId = this.generateExecutionId();
-      this.activeExecutions.set(executionId, execution);
       const executionInfo: TaskExecutionInfo = {
         executionId,
         taskName,
@@ -172,32 +246,69 @@ export class TaskManager implements vscode.Disposable {
         startTime: Date.now()
       };
       this.executions.set(executionId, executionInfo);
-      this.outputs.set(executionId, '(Terminal output capture not available - use VS Code terminal to view output)');
+      this.outputs.set(executionId, '');
+      let rawCommand = this.getRawCommand(task);
+      if (inputValues && Object.keys(inputValues).length > 0) {
+        for (const [inputId, value] of Object.entries(inputValues)) {
+          const pattern = new RegExp(`\\$\\{input:${inputId}\\}`, 'g');
+          rawCommand = rawCommand.replace(pattern, value);
+        }
+      }
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      const cwd = workspaceFolder?.uri.fsPath || process.cwd();
+      const resolvedCommand = this.resolveVariables(rawCommand, workspaceFolder);
+      const customExec = new vscode.CustomExecution(async () => {
+        return new OutputCapturePty(
+          resolvedCommand,
+          cwd,
+          { ...process.env },
+          (output) => { this.outputs.set(executionId, output); },
+          (exitCode) => {
+            const info = this.executions.get(executionId);
+            if (info) {
+              info.exitCode = exitCode;
+              info.status = exitCode === 0 ? 'completed' : 'failed';
+              info.endTime = Date.now();
+            }
+            this.activeExecutions.delete(executionId);
+          }
+        );
+      });
+      const captureTask = new vscode.Task(
+        task.definition,
+        task.scope || vscode.TaskScope.Workspace,
+        task.name,
+        task.source,
+        customExec,
+        task.problemMatchers
+      );
+      captureTask.presentationOptions = task.presentationOptions;
+      const execution = await vscode.tasks.executeTask(captureTask);
+      this.activeExecutions.set(executionId, execution);
       return { success: true, executionId };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   }
 
-  private createTaskWithInputs(originalTask: vscode.Task, inputValues: Record<string, string>): vscode.Task {
-    const rawCommand = this.getRawCommand(originalTask);
-    let substitutedCommand = rawCommand;
-    for (const [inputId, value] of Object.entries(inputValues)) {
-      const pattern = new RegExp(`\\$\\{input:${inputId}\\}`, 'g');
-      substitutedCommand = substitutedCommand.replace(pattern, value);
+  private resolveVariables(command: string, workspaceFolder?: vscode.WorkspaceFolder): string {
+    let resolved = command;
+    if (workspaceFolder) {
+      resolved = resolved.replace(/\$\{workspaceFolder\}/g, workspaceFolder.uri.fsPath);
+      resolved = resolved.replace(/\$\{workspaceFolderBasename\}/g, workspaceFolder.name);
     }
-    const shellExec = new vscode.ShellExecution(substitutedCommand);
-    const newTask = new vscode.Task(
-      originalTask.definition,
-      originalTask.scope || vscode.TaskScope.Workspace,
-      originalTask.name,
-      originalTask.source,
-      shellExec,
-      originalTask.problemMatchers
-    );
-    newTask.presentationOptions = originalTask.presentationOptions;
-    newTask.isBackground = originalTask.isBackground;
-    return newTask;
+    const activeEditor = vscode.window.activeTextEditor;
+    if (activeEditor) {
+      const filePath = activeEditor.document.uri.fsPath;
+      resolved = resolved.replace(/\$\{file\}/g, filePath);
+      resolved = resolved.replace(/\$\{fileBasename\}/g, path.basename(filePath));
+      resolved = resolved.replace(/\$\{fileBasenameNoExtension\}/g, path.basename(filePath, path.extname(filePath)));
+      resolved = resolved.replace(/\$\{fileDirname\}/g, path.dirname(filePath));
+      resolved = resolved.replace(/\$\{fileExtname\}/g, path.extname(filePath));
+      resolved = resolved.replace(/\$\{relativeFile\}/g, 
+        workspaceFolder ? path.relative(workspaceFolder.uri.fsPath, filePath) : filePath);
+    }
+    return resolved;
   }
 
   async runTaskAndWait(

@@ -118,6 +118,34 @@ Each launch configuration defined in your workspace becomes a tool named `launch
 
 **Pre-launch tasks** are handled automatically by VS Code when the debug session starts.
 
+### ⚙️ MCP Options
+
+Tasks and launch configurations support an optional `mcp` block for MCP-specific settings:
+
+```json
+{
+  "label": "Build",
+  "type": "shell",
+  "command": "npm run build",
+  "mcp": {
+    "returnOutput": "onFailure"
+  }
+}
+```
+
+| Option | Values | Default | Description |
+|--------|--------|---------|-------------|
+| `returnOutput` | `always` / `onFailure` / `never` | `onFailure` | Controls when task output is included in MCP tool responses |
+
+**`returnOutput` behavior:**
+- `always` - Always include full terminal output in the response
+- `onFailure` - Only include output when the task fails (exit code != 0)
+- `never` - Never include output (use `get_task_output` to retrieve it separately)
+
+This helps manage context size when working with AI assistants - successful builds don't need to send hundreds of lines of output, but failed builds should include the error details.
+
+The same `mcp` block works in launch configurations in `launch.json`.
+
 ### 📋 Task Utility Tools
 
 | Tool | Description | Parameters |

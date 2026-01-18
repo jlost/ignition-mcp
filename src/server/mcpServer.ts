@@ -202,12 +202,23 @@ export class MCPServer {
     return { complete: true, values: resolved };
   }
 
+  private shouldReturnOutput(
+    returnOutputSetting: 'always' | 'onFailure' | 'never' | undefined,
+    exitCode: number | undefined
+  ): boolean {
+    const setting = returnOutputSetting ?? 'onFailure';
+    if (setting === 'always') return true;
+    if (setting === 'never') return false;
+    return exitCode !== 0;
+  }
+
   private registerTaskTool(task: TaskInfo) {
     const toolName = this.sanitizeToolName(task.name, 'task_');
     const isBackground = task.isBackground;
     const description = this.buildTaskDescription(task);
     const hasInputs = task.inputs && task.inputs.length > 0;
     const inputSchema = hasInputs ? this.buildInputSchema(task.inputs!) : {};
+    const returnOutputSetting = task.mcpOptions?.returnOutput;
     this.mcpServer.tool(
       toolName,
       description,
@@ -276,30 +287,37 @@ export class MCPServer {
             };
           }
           const result = await this.taskManager.runTaskAndWait(task.name, inputValues);
+          const includeOutput = this.shouldReturnOutput(returnOutputSetting, result.exitCode);
           if (!result.success) {
+            const response: Record<string, unknown> = {
+              status: result.status || 'failed',
+              error: result.error,
+              exitCode: result.exitCode,
+              executionId: result.executionId
+            };
+            if (includeOutput) {
+              response.output = result.output;
+            }
             return {
               content: [{
                 type: 'text' as const,
-                text: JSON.stringify({
-                  status: result.status || 'failed',
-                  error: result.error,
-                  exitCode: result.exitCode,
-                  executionId: result.executionId,
-                  output: result.output
-                }, null, 2)
+                text: JSON.stringify(response, null, 2)
               }],
               isError: true
             };
           }
+          const response: Record<string, unknown> = {
+            status: 'completed',
+            exitCode: result.exitCode,
+            executionId: result.executionId
+          };
+          if (includeOutput) {
+            response.output = result.output;
+          }
           return {
             content: [{
               type: 'text' as const,
-              text: JSON.stringify({
-                status: 'completed',
-                exitCode: result.exitCode,
-                executionId: result.executionId,
-                output: result.output
-              }, null, 2)
+              text: JSON.stringify(response, null, 2)
             }]
           };
         }

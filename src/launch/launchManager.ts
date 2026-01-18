@@ -1,6 +1,4 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
 
 export interface LaunchInputDefinition {
   id: string;
@@ -8,6 +6,10 @@ export interface LaunchInputDefinition {
   description?: string;
   default?: string;
   options?: string[];
+}
+
+export interface McpOptions {
+  returnOutput?: 'always' | 'onFailure' | 'never';
 }
 
 export interface LaunchInfo {
@@ -18,6 +20,7 @@ export interface LaunchInfo {
   postDebugTask?: string;
   inputs?: LaunchInputDefinition[];
   rawConfig?: Record<string, unknown>;
+  mcpOptions?: McpOptions;
 }
 
 export interface DebugSessionInfo {
@@ -56,30 +59,35 @@ export class LaunchManager implements vscode.Disposable {
   }
 
   async listLaunchConfigs(): Promise<LaunchInfo[]> {
-    const launchJsonData = this.readLaunchJson();
-    if (!launchJsonData || !launchJsonData.configurations) {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
       return [];
     }
-    const inputDefinitions = launchJsonData.inputs || [];
     const configs: LaunchInfo[] = [];
-    for (const config of launchJsonData.configurations) {
-      if (!config.name || !config.type || !config.request) {
-        continue;
+    for (const folder of workspaceFolders) {
+      const launchConfig = vscode.workspace.getConfiguration('launch', folder.uri);
+      const configurations = launchConfig.get<Record<string, unknown>[]>('configurations') || [];
+      const inputDefinitions = launchConfig.get<LaunchInputDefinition[]>('inputs') || [];
+      for (const config of configurations) {
+        if (!config.name || !config.type || !config.request) {
+          continue;
+        }
+        const configStr = JSON.stringify(config);
+        const usedInputIds = this.findInputReferences(configStr);
+        const inputs = usedInputIds.length > 0
+          ? inputDefinitions.filter((inp: LaunchInputDefinition) => usedInputIds.includes(inp.id))
+          : undefined;
+        configs.push({
+          name: config.name as string,
+          type: config.type as string,
+          request: config.request as 'launch' | 'attach',
+          preLaunchTask: config.preLaunchTask as string | undefined,
+          postDebugTask: config.postDebugTask as string | undefined,
+          inputs,
+          rawConfig: config,
+          mcpOptions: config.mcp as McpOptions | undefined
+        });
       }
-      const configStr = JSON.stringify(config);
-      const usedInputIds = this.findInputReferences(configStr);
-      const inputs = usedInputIds.length > 0
-        ? inputDefinitions.filter((inp: LaunchInputDefinition) => usedInputIds.includes(inp.id))
-        : undefined;
-      configs.push({
-        name: config.name,
-        type: config.type,
-        request: config.request,
-        preLaunchTask: config.preLaunchTask,
-        postDebugTask: config.postDebugTask,
-        inputs,
-        rawConfig: config
-      });
     }
     return configs;
   }
@@ -169,27 +177,6 @@ export class LaunchManager implements vscode.Disposable {
       info.endTime = Date.now();
     }
     console.log(`Debug session terminated: ${session.name} (${session.id})`);
-  }
-
-  private readLaunchJson(): {
-    configurations?: Record<string, unknown>[];
-    inputs?: LaunchInputDefinition[];
-  } | null {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders || workspaceFolders.length === 0) {
-      return null;
-    }
-    const launchJsonPath = path.join(workspaceFolders[0].uri.fsPath, '.vscode', 'launch.json');
-    if (!fs.existsSync(launchJsonPath)) {
-      return null;
-    }
-    try {
-      const content = fs.readFileSync(launchJsonPath, 'utf-8');
-      const cleanedContent = content.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
-      return JSON.parse(cleanedContent);
-    } catch {
-      return null;
-    }
   }
 
   private findInputReferences(text: string): string[] {
