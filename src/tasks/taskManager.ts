@@ -13,6 +13,7 @@ export interface TaskInputDefinition {
 
 export interface McpOptions {
   returnOutput?: 'always' | 'onFailure' | 'never';
+  outputLimit?: number | null;
 }
 
 export interface TaskInfo {
@@ -50,6 +51,7 @@ export interface TaskStatusResult {
 export interface TaskOutputResult {
   found: boolean;
   output?: string;
+  truncated?: boolean;
   error?: string;
 }
 
@@ -128,6 +130,8 @@ class OutputCapturePty implements vscode.Pseudoterminal {
 export class TaskManager implements vscode.Disposable {
   private executions: Map<string, TaskExecutionInfo> = new Map();
   private outputs: Map<string, string> = new Map();
+  private outputTruncated: Map<string, boolean> = new Map();
+  private outputLimits: Map<string, number | null> = new Map();
   private activeExecutions: Map<string, vscode.TaskExecution> = new Map();
   private disposables: vscode.Disposable[] = [];
 
@@ -137,6 +141,26 @@ export class TaskManager implements vscode.Disposable {
       vscode.tasks.onDidEndTask((e) => this.onTaskEnded(e)),
       vscode.tasks.onDidEndTaskProcess((e) => this.onTaskProcessEnded(e))
     );
+  }
+
+  private getDefaultOutputLimit(): number | null {
+    const config = vscode.workspace.getConfiguration('ignition-mcp');
+    return config.get<number | null>('outputLimit', 20480);
+  }
+
+  private getOutputLimitForExecution(executionId: string): number | null {
+    const limit = this.outputLimits.get(executionId);
+    return limit !== undefined ? limit : this.getDefaultOutputLimit();
+  }
+
+  private truncateOutput(output: string, executionId: string): string {
+    const limit = this.getOutputLimitForExecution(executionId);
+    if (limit === null || output.length <= limit) {
+      return output;
+    }
+    this.outputTruncated.set(executionId, true);
+    const truncationMsg = `\n\n[Output truncated: showing first ${limit} of ${output.length} characters]`;
+    return output.slice(0, limit) + truncationMsg;
   }
 
   async listTasks(): Promise<TaskInfo[]> {
@@ -231,7 +255,7 @@ export class TaskManager implements vscode.Disposable {
     return undefined;
   }
 
-  async runTask(taskName: string, inputValues?: Record<string, string>): Promise<TaskRunResult> {
+  async runTask(taskName: string, inputValues?: Record<string, string>, mcpOptions?: McpOptions): Promise<TaskRunResult> {
     const tasks = await vscode.tasks.fetchTasks();
     const task = tasks.find((t) => t.name === taskName);
     if (!task) {
@@ -247,6 +271,9 @@ export class TaskManager implements vscode.Disposable {
       };
       this.executions.set(executionId, executionInfo);
       this.outputs.set(executionId, '');
+      if (mcpOptions?.outputLimit !== undefined) {
+        this.outputLimits.set(executionId, mcpOptions.outputLimit);
+      }
       let rawCommand = this.getRawCommand(task);
       if (inputValues && Object.keys(inputValues).length > 0) {
         for (const [inputId, value] of Object.entries(inputValues)) {
@@ -262,7 +289,7 @@ export class TaskManager implements vscode.Disposable {
           resolvedCommand,
           cwd,
           { ...process.env },
-          (output) => { this.outputs.set(executionId, output); },
+          (output) => { this.outputs.set(executionId, this.truncateOutput(output, executionId)); },
           (exitCode) => {
             const info = this.executions.get(executionId);
             if (info) {
@@ -314,6 +341,7 @@ export class TaskManager implements vscode.Disposable {
   async runTaskAndWait(
     taskName: string,
     inputValues?: Record<string, string>,
+    mcpOptions?: McpOptions,
     timeoutMs: number = 300000
   ): Promise<{
     success: boolean;
@@ -323,7 +351,7 @@ export class TaskManager implements vscode.Disposable {
     output?: string;
     error?: string;
   }> {
-    const result = await this.runTask(taskName, inputValues);
+    const result = await this.runTask(taskName, inputValues, mcpOptions);
     if (!result.success || !result.executionId) {
       return { success: false, error: result.error };
     }
@@ -375,7 +403,8 @@ export class TaskManager implements vscode.Disposable {
       return { found: false, error: 'Execution not found' };
     }
     const output = this.outputs.get(executionId);
-    return { found: true, output: output || '' };
+    const truncated = this.outputTruncated.get(executionId);
+    return { found: true, output: output || '', truncated };
   }
 
   cancelTask(executionId: string): TaskCancelResult {
@@ -448,6 +477,8 @@ export class TaskManager implements vscode.Disposable {
     this.disposables.forEach((d) => d.dispose());
     this.executions.clear();
     this.outputs.clear();
+    this.outputTruncated.clear();
+    this.outputLimits.clear();
     this.activeExecutions.clear();
   }
 }

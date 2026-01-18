@@ -11,6 +11,7 @@ export interface LaunchInputDefinition {
 export interface McpOptions {
   returnOutput?: 'always' | 'onFailure' | 'never';
   preserveConsole?: boolean;
+  outputLimit?: number | null;
 }
 
 export interface LaunchInfo {
@@ -80,6 +81,7 @@ export interface DebugOutputResult {
   success: boolean;
   sessionId?: string;
   output?: string;
+  truncated?: boolean;
   error?: string;
 }
 
@@ -143,6 +145,10 @@ export interface ContinueResult {
 export class LaunchManager implements vscode.Disposable {
   private sessions: Map<string, DebugSessionInfo> = new Map();
   private outputs: Map<string, string[]> = new Map();
+  private outputLengths: Map<string, number> = new Map();
+  private outputTruncated: Map<string, boolean> = new Map();
+  private outputLimits: Map<string, number | null> = new Map();
+  private pendingOutputLimits: Map<string, number | null> = new Map();
   private pendingConsoleOverrides: Map<string, boolean> = new Map();
   private disposables: vscode.Disposable[] = [];
 
@@ -152,6 +158,16 @@ export class LaunchManager implements vscode.Disposable {
       vscode.debug.onDidTerminateDebugSession((session) => this.onSessionTerminated(session))
     );
     this.registerDebugAdapterTracker();
+  }
+
+  private getDefaultOutputLimit(): number | null {
+    const config = vscode.workspace.getConfiguration('ignition-mcp');
+    return config.get<number | null>('outputLimit', 20480);
+  }
+
+  private getOutputLimitForSession(sessionId: string): number | null {
+    const limit = this.outputLimits.get(sessionId);
+    return limit !== undefined ? limit : this.getDefaultOutputLimit();
   }
 
   private registerDebugAdapterTracker() {
@@ -215,12 +231,25 @@ export class LaunchManager implements vscode.Disposable {
   private captureOutput(sessionId: string, body: Record<string, unknown>) {
     const output = body.output as string | undefined;
     if (!output) return;
+    const limit = this.getOutputLimitForSession(sessionId);
+    const currentLength = this.outputLengths.get(sessionId) || 0;
+    if (limit !== null && currentLength >= limit) {
+      return;
+    }
     let outputs = this.outputs.get(sessionId);
     if (!outputs) {
       outputs = [];
       this.outputs.set(sessionId, outputs);
     }
-    outputs.push(output);
+    if (limit !== null && currentLength + output.length > limit) {
+      const remaining = limit - currentLength;
+      outputs.push(output.slice(0, remaining));
+      this.outputLengths.set(sessionId, limit);
+      this.outputTruncated.set(sessionId, true);
+    } else {
+      outputs.push(output);
+      this.outputLengths.set(sessionId, currentLength + output.length);
+    }
   }
 
   async listLaunchConfigs(): Promise<LaunchInfo[]> {
@@ -284,21 +313,31 @@ export class LaunchManager implements vscode.Disposable {
       }
       const pendingId = `pending-${Date.now()}`;
       this.pendingConsoleOverrides.set(pendingId, consoleOverridden);
+      if (config.mcpOptions?.outputLimit !== undefined) {
+        this.pendingOutputLimits.set(pendingId, config.mcpOptions.outputLimit);
+      }
       const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
       const started = await vscode.debug.startDebugging(workspaceFolder, debugConfig);
       if (!started) {
         this.pendingConsoleOverrides.delete(pendingId);
+        this.pendingOutputLimits.delete(pendingId);
         return { success: false, error: 'Failed to start debug session' };
       }
       const activeSession = vscode.debug.activeDebugSession;
       const sessionId = activeSession?.id || `debug-${Date.now()}`;
-      if (activeSession && consoleOverridden) {
-        const info = this.sessions.get(activeSession.id);
-        if (info) {
-          info.consoleOverridden = true;
+      if (activeSession) {
+        if (consoleOverridden) {
+          const info = this.sessions.get(activeSession.id);
+          if (info) {
+            info.consoleOverridden = true;
+          }
+        }
+        if (config.mcpOptions?.outputLimit !== undefined) {
+          this.outputLimits.set(activeSession.id, config.mcpOptions.outputLimit);
         }
       }
       this.pendingConsoleOverrides.delete(pendingId);
+      this.pendingOutputLimits.delete(pendingId);
       return { success: true, sessionId, consoleOverridden };
     } catch (error) {
       return { success: false, error: String(error) };
@@ -351,6 +390,8 @@ export class LaunchManager implements vscode.Disposable {
     };
     this.sessions.set(session.id, info);
     this.outputs.set(session.id, []);
+    this.outputLengths.set(session.id, 0);
+    this.outputTruncated.delete(session.id);
     console.log(`Debug session started: ${session.name} (${session.id})`);
   }
 
@@ -398,7 +439,13 @@ export class LaunchManager implements vscode.Disposable {
     if (!outputs) {
       return { success: false, sessionId: targetId, error: 'Session not found or no output captured' };
     }
-    return { success: true, sessionId: targetId, output: outputs.join('') };
+    const truncated = this.outputTruncated.get(targetId);
+    let output = outputs.join('');
+    if (truncated) {
+      const limit = this.getOutputLimitForSession(targetId);
+      output += `\n\n[Output truncated: showing first ${limit} characters]`;
+    }
+    return { success: true, sessionId: targetId, output, truncated };
   }
 
   async getStackTrace(sessionId?: string): Promise<StackTraceResult> {
@@ -619,6 +666,10 @@ export class LaunchManager implements vscode.Disposable {
     this.disposables.forEach((d) => d.dispose());
     this.sessions.clear();
     this.outputs.clear();
+    this.outputLengths.clear();
+    this.outputTruncated.clear();
+    this.outputLimits.clear();
+    this.pendingOutputLimits.clear();
     this.pendingConsoleOverrides.clear();
   }
 }

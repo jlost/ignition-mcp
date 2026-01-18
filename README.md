@@ -10,7 +10,7 @@ A VS Code extension that exposes tasks and launch configurations via MCP (Model 
 
 **Works with:** VS Code + Copilot, Cursor, Claude Code, Claude Desktop, and any MCP-compatible client.
 
-### 💡 Why Not Just Use Terminal Commands?
+### 💡 Why not just use terminal commands?
 
 AI agents typically run `npm run build` in a shell. But your `tasks.json` and `launch.json` define more than commands - they include problem matchers, task dependencies, environment setup, input variables, and debug configurations.
 
@@ -138,6 +138,7 @@ Tasks and launch configurations support an optional `mcp` block for MCP-specific
 | Option | Values | Default | Description |
 |--------|--------|---------|-------------|
 | `returnOutput` | `always` / `onFailure` / `never` | `onFailure` | Controls when output is included in MCP tool responses |
+| `outputLimit` | number / `null` | `20480` | Max characters to capture (null = unlimited). Overrides global setting. |
 | `preserveConsole` | `true` / `false` | `false` | (Launch only) Keep original console setting instead of overriding |
 
 **`returnOutput` behavior:**

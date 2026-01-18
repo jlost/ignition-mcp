@@ -59,7 +59,18 @@
         "command": "ignition-mcp.restart",
         "title": "Ignition MCP: Restart Server"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Ignition MCP",
+      "properties": {
+        "ignition-mcp.outputLimit": {
+          "type": ["integer", "null"],
+          "default": 20480,
+          "minimum": 1024,
+          "description": "Default maximum characters to capture from task and debug output. Can be overridden per-task/launch via mcp.outputLimit in tasks.json/launch.json. Set to null for unlimited. Default is 20480 (20KB)."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run build",

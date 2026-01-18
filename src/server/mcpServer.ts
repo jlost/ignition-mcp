@@ -365,7 +365,7 @@ export class MCPServer {
           }
         }
         if (isBackground) {
-          const result = await this.taskManager.runTask(task.name, inputValues);
+          const result = await this.taskManager.runTask(task.name, inputValues, task.mcpOptions);
           if (!result.success) {
             return {
               content: [{
@@ -392,7 +392,7 @@ export class MCPServer {
           };
         } else {
           if (userWillBePrompted) {
-            const result = await this.taskManager.runTask(task.name, inputValues);
+            const result = await this.taskManager.runTask(task.name, inputValues, task.mcpOptions);
             if (!result.success) {
               return {
                 content: [{
@@ -415,7 +415,7 @@ export class MCPServer {
               }]
             };
           }
-          const result = await this.taskManager.runTaskAndWait(task.name, inputValues);
+          const result = await this.taskManager.runTaskAndWait(task.name, inputValues, task.mcpOptions);
           const includeOutput = this.shouldReturnOutput(returnOutputSetting, result.exitCode);
           if (!result.success) {
             const response: Record<string, unknown> = {
