@@ -21,7 +21,7 @@ function log(message: string) {
   outputChannel?.appendLine(`[${timestamp}] ${message}`);
 }
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel('Ignition MCP');
   context.subscriptions.push(outputChannel);
   log('Ignition MCP extension activating...');
@@ -40,9 +40,10 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('ignition-mcp.configure', () => configureGlobal(currentPort)),
     vscode.commands.registerCommand('ignition-mcp.show-status', showStatusQuickPick),
-    vscode.commands.registerCommand('ignition-mcp.takeover', handleTakeover)
+    vscode.commands.registerCommand('ignition-mcp.takeover', handleTakeover),
+    vscode.commands.registerCommand('ignition-mcp.restart', handleRestart)
   );
-  initializeServer();
+  await initializeServer();
   log('Ignition MCP extension activated');
 }
 
@@ -84,6 +85,24 @@ async function handleTakeover() {
     await sleep(300);
   }
   await enableServer();
+}
+
+async function handleRestart() {
+  log('Restart requested...');
+  if (mcpServer) {
+    log('Stopping current server...');
+    await mcpServer.stop();
+    mcpServer = null;
+    serverState = 'stopped';
+    updateStatusBar();
+  }
+  await sleep(100);
+  await enableServer();
+  if (serverState === 'running') {
+    vscode.window.showInformationMessage(
+      `Ignition MCP server restarted on port ${currentPort}. You may need to toggle the MCP in Cursor settings to reconnect.`
+    );
+  }
 }
 
 export function deactivate() {
@@ -196,6 +215,12 @@ async function showStatusQuickPick() {
       description: 'Stop the other window\'s server and start here'
     });
   }
+  if (serverState === 'running') {
+    items.push({
+      label: '$(sync) Restart Server',
+      description: 'Restart the MCP server (helps if Cursor shows red status)'
+    });
+  }
   // Status description based on state
   let statusDesc: string;
   switch (serverState) {
@@ -218,6 +243,8 @@ async function showStatusQuickPick() {
     await configureGlobal(currentPort);
   } else if (selection.label.includes('Take Over')) {
     await handleTakeover();
+  } else if (selection.label.includes('Restart')) {
+    await handleRestart();
   } else if (selection.label.includes('Output')) {
     outputChannel?.show();
   }

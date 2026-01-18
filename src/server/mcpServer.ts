@@ -1,6 +1,6 @@
 import * as http from 'http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 import { TaskManager, TaskInfo, TaskInputDefinition } from '../tasks/taskManager';
 import { LaunchManager, LaunchInfo, LaunchInputDefinition } from '../launch/launchManager';
@@ -12,7 +12,7 @@ export type ShutdownCallback = () => void;
 export class MCPServer {
   private server: http.Server | null = null;
   private mcpServer: McpServer;
-  private transports: Map<string, SSEServerTransport> = new Map();
+  private transport: StreamableHTTPServerTransport | null = null;
   private port: number;
   private taskManager: TaskManager;
   private launchManager: LaunchManager;
@@ -455,10 +455,16 @@ export class MCPServer {
 
   async start(): Promise<void> {
     await this.registerTools();
+    // Create the streamable HTTP transport
+    this.transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => `session-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    });
+    // Connect the MCP server to the transport
+    await this.mcpServer.connect(this.transport);
     return new Promise((resolve, reject) => {
       this.server = http.createServer(async (req, res) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
         if (req.method === 'OPTIONS') {
           res.writeHead(204);
@@ -466,10 +472,8 @@ export class MCPServer {
           return;
         }
         const url = new URL(req.url || '/', `http://localhost:${this.port}`);
-        if (url.pathname === '/sse' && req.method === 'GET') {
-          await this.handleSSE(req, res);
-        } else if (url.pathname === '/messages' && req.method === 'POST') {
-          await this.handleMessages(req, res, url);
+        if (url.pathname === '/mcp') {
+          await this.handleMcp(req, res);
         } else if (url.pathname === '/health' && req.method === 'GET') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ status: 'ok', server: 'ignition-mcp' }));
@@ -483,46 +487,28 @@ export class MCPServer {
       this.server.on('error', (err) => {
         reject(err);
       });
-      this.server.listen(this.port, () => {
+      // Explicitly listen on 0.0.0.0 to ensure both IPv4 and IPv6 work via loopback
+      this.server.listen(this.port, '0.0.0.0', () => {
         console.log(`MCP server listening on port ${this.port}`);
         resolve();
       });
     });
   }
 
-  private async handleSSE(req: http.IncomingMessage, res: http.ServerResponse) {
-    const transport = new SSEServerTransport('/messages', res);
-    const sessionId = transport.sessionId;
-    this.transports.set(sessionId, transport);
-    res.on('close', () => {
-      this.transports.delete(sessionId);
-    });
-    await this.mcpServer.connect(transport);
-  }
-
-  private async handleMessages(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
-    const sessionId = url.searchParams.get('sessionId');
-    if (!sessionId) {
-      res.writeHead(400);
-      res.end('Missing sessionId');
+  private async handleMcp(req: http.IncomingMessage, res: http.ServerResponse) {
+    if (!this.transport) {
+      res.writeHead(500);
+      res.end('Transport not initialized');
       return;
-    }
-    const transport = this.transports.get(sessionId);
-    if (!transport) {
-      res.writeHead(404);
-      res.end('Session not found');
-      return;
-    }
-    let body = '';
-    for await (const chunk of req) {
-      body += chunk;
     }
     try {
-      await transport.handlePostMessage(req, res, body);
+      await this.transport.handleRequest(req, res);
     } catch (error) {
-      console.error('Error handling message:', error);
-      res.writeHead(500);
-      res.end('Internal server error');
+      console.error('Error handling MCP request:', error);
+      if (!res.headersSent) {
+        res.writeHead(500);
+        res.end('Internal server error');
+      }
     }
   }
 
@@ -551,11 +537,14 @@ export class MCPServer {
   }
 
   async stop(): Promise<void> {
+    if (this.transport) {
+      await this.transport.close();
+      this.transport = null;
+    }
     return new Promise((resolve) => {
       if (this.server) {
         this.server.close(() => {
           this.server = null;
-          this.transports.clear();
           resolve();
         });
       } else {

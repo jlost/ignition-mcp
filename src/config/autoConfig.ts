@@ -49,7 +49,7 @@ function readConfig(configPath: string): MCPConfig | null {
 }
 
 function writeConfig(configPath: string, port: number): boolean {
-  const expectedUrl = `http://localhost:${port}/sse`;
+  const expectedUrl = `http://localhost:${port}/mcp`;
   const configDir = path.dirname(configPath);
   try {
     if (!fs.existsSync(configDir)) {
@@ -216,7 +216,7 @@ export async function configureGlobal(port: number): Promise<void> {
         return;
       }
     }
-    servers[SERVER_NAME] = { url: `http://localhost:${port}/sse` };
+    servers[SERVER_NAME] = { url: `http://localhost:${port}/mcp` };
     const configDir = path.dirname(configPath);
     if (!fs.existsSync(configDir)) {
       fs.mkdirSync(configDir, { recursive: true });

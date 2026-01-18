@@ -54,6 +54,10 @@
       {
         "command": "ignition-mcp.takeover",
         "title": "Ignition MCP: Take Over Server"
+      },
+      {
+        "command": "ignition-mcp.restart",
+        "title": "Ignition MCP: Restart Server"
       }
     ]
   },

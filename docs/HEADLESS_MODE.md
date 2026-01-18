@@ -9,7 +9,7 @@ Run Ignition MCP without a VS Code GUI, allowing AI agents like `cursor-agent` o
 code tunnel --accept-server-license-terms serve-web --folder /path/to/workspace
 
 # Connect once via browser to activate the extension
-# Then configure your agent to use http://localhost:3500/sse
+# Then configure your agent to use http://localhost:3500/mcp
 ```
 
 
@@ -202,7 +202,7 @@ Add to `.vscode/mcp.json` in your workspace:
 {
   "servers": {
     "ignition-mcp": {
-      "url": "http://localhost:3500/sse"
+      "url": "http://localhost:3500/mcp"
     }
   }
 }
@@ -216,7 +216,7 @@ Add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
 {
   "mcpServers": {
     "ignition-mcp": {
-      "url": "http://localhost:3500/sse"
+      "url": "http://localhost:3500/mcp"
     }
   }
 }
@@ -230,7 +230,7 @@ Add to `~/.claude.json` (global) or `.mcp.json` (project):
 {
   "mcpServers": {
     "ignition-mcp": {
-      "url": "http://localhost:3500/sse"
+      "url": "http://localhost:3500/mcp"
     }
   }
 }
@@ -247,7 +247,7 @@ Config file locations by platform:
 {
   "mcpServers": {
     "ignition-mcp": {
-      "url": "http://localhost:3500/sse"
+      "url": "http://localhost:3500/mcp"
     }
   }
 }
@@ -261,7 +261,7 @@ For remote servers, use the tunnel or SSH forwarded port:
 {
   "mcpServers": {
     "ignition-mcp": {
-      "url": "http://dev-machine.local:3500/sse"
+      "url": "http://dev-machine.local:3500/mcp"
     }
   }
 }
@@ -282,7 +282,7 @@ Connect an MCP client and call `list_tasks`:
 
 ```bash
 # Using a simple MCP test client
-curl -N http://localhost:3500/sse &
+curl -N http://localhost:3500/mcp &
 SSE_PID=$!
 
 # Send a tool call (requires MCP client library)
@@ -370,7 +370,7 @@ ssh -L 3500:localhost:3500 user@remote-dev-machine
 
 2. Connect once to activate extension (browser or VS Code client)
 
-3. Configure your AI agent to use `http://localhost:3500/sse`
+3. Configure your AI agent to use `http://localhost:3500/mcp`
 
 4. Agent can now:
    - List tasks: `list_tasks`
