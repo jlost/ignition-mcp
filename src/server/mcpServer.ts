@@ -127,7 +127,7 @@ export class MCPServer {
     );
     this.mcpServer.tool(
       'get_debug_status',
-      'Get the status of active debug sessions',
+      'Get the status of active debug sessions including state (running/paused/terminated), stop reason, and exception info',
       {},
       async () => {
         const status = this.launchManager.getDebugStatus();
@@ -135,6 +135,34 @@ export class MCPServer {
           content: [{
             type: 'text' as const,
             text: JSON.stringify(status, null, 2)
+          }]
+        };
+      }
+    );
+    this.mcpServer.tool(
+      'get_debug_output',
+      'Get the captured debug console output from a debug session',
+      { sessionId: z.string().optional().describe('The session ID (omit to use the active session)') },
+      async ({ sessionId }) => {
+        const result = this.launchManager.getDebugOutput(sessionId);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify(result, null, 2)
+          }]
+        };
+      }
+    );
+    this.mcpServer.tool(
+      'get_stack_trace',
+      'Get the call stack from a paused debug session',
+      { sessionId: z.string().optional().describe('The session ID (omit to use the active session)') },
+      async ({ sessionId }) => {
+        const result = await this.launchManager.getStackTrace(sessionId);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify(result, null, 2)
           }]
         };
       }
@@ -387,8 +415,12 @@ export class MCPServer {
           status: 'started',
           message: `Debug session "${config.name}" started.`,
           sessionId: result.sessionId,
-          note: 'Use get_debug_status to check session state, stop_debug_session to stop.'
+          note: 'Use get_debug_status to check session state, get_debug_output for console output, get_stack_trace when paused.'
         };
+        if (result.consoleOverridden) {
+          response.consoleOverridden = true;
+          response.consoleNote = 'Console mode was changed to internalConsole for output capture.';
+        }
         if (userWillBePrompted) {
           response.userPrompted = true;
           response.note = 'User will be prompted for missing input values in VS Code. Use get_debug_status to check session state.';

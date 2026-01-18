@@ -10,6 +10,7 @@ export interface LaunchInputDefinition {
 
 export interface McpOptions {
   returnOutput?: 'always' | 'onFailure' | 'never';
+  preserveConsole?: boolean;
 }
 
 export interface LaunchInfo {
@@ -23,18 +24,30 @@ export interface LaunchInfo {
   mcpOptions?: McpOptions;
 }
 
+export interface ExceptionInfo {
+  exceptionId: string;
+  description?: string;
+  breakMode?: string;
+}
+
 export interface DebugSessionInfo {
   id: string;
   name: string;
   type: string;
   status: 'active' | 'terminated';
+  state: 'initializing' | 'running' | 'paused' | 'terminated';
   startTime: number;
   endTime?: number;
+  stopReason?: string;
+  exceptionInfo?: ExceptionInfo;
+  stoppedThreadId?: number;
+  consoleOverridden?: boolean;
 }
 
 export interface StartDebugResult {
   success: boolean;
   sessionId?: string;
+  consoleOverridden?: boolean;
   error?: string;
 }
 
@@ -47,8 +60,33 @@ export interface DebugStatusResult {
   activeSessions: DebugSessionInfo[];
 }
 
+export interface StackFrame {
+  id: number;
+  name: string;
+  source?: { name?: string; path?: string };
+  line: number;
+  column: number;
+}
+
+export interface StackTraceResult {
+  success: boolean;
+  sessionId?: string;
+  threadId?: number;
+  stackFrames?: StackFrame[];
+  error?: string;
+}
+
+export interface DebugOutputResult {
+  success: boolean;
+  sessionId?: string;
+  output?: string;
+  error?: string;
+}
+
 export class LaunchManager implements vscode.Disposable {
   private sessions: Map<string, DebugSessionInfo> = new Map();
+  private outputs: Map<string, string[]> = new Map();
+  private pendingConsoleOverrides: Map<string, boolean> = new Map();
   private disposables: vscode.Disposable[] = [];
 
   constructor() {
@@ -56,6 +94,76 @@ export class LaunchManager implements vscode.Disposable {
       vscode.debug.onDidStartDebugSession((session) => this.onSessionStarted(session)),
       vscode.debug.onDidTerminateDebugSession((session) => this.onSessionTerminated(session))
     );
+    this.registerDebugAdapterTracker();
+  }
+
+  private registerDebugAdapterTracker() {
+    const self = this;
+    this.disposables.push(
+      vscode.debug.registerDebugAdapterTrackerFactory('*', {
+        createDebugAdapterTracker(session: vscode.DebugSession): vscode.ProviderResult<vscode.DebugAdapterTracker> {
+          return {
+            onDidSendMessage(message: { type: string; event?: string; body?: Record<string, unknown> }) {
+              if (message.type === 'event') {
+                self.handleDebugEvent(session.id, message.event, message.body);
+              }
+            }
+          };
+        }
+      })
+    );
+  }
+
+  private handleDebugEvent(sessionId: string, event: string | undefined, body: Record<string, unknown> | undefined) {
+    const info = this.sessions.get(sessionId);
+    if (!body) return;
+    switch (event) {
+      case 'initialized':
+        if (info) {
+          info.state = 'running';
+        }
+        break;
+      case 'output':
+        this.captureOutput(sessionId, body);
+        break;
+      case 'stopped':
+        if (info) {
+          info.state = 'paused';
+          info.stopReason = body.reason as string | undefined;
+          info.stoppedThreadId = body.threadId as number | undefined;
+          if (body.reason === 'exception') {
+            info.exceptionInfo = {
+              exceptionId: (body.text as string) || 'unknown',
+              description: body.description as string | undefined
+            };
+          }
+        }
+        break;
+      case 'continued':
+        if (info) {
+          info.state = 'running';
+          info.stopReason = undefined;
+          info.stoppedThreadId = undefined;
+        }
+        break;
+      case 'exited':
+      case 'terminated':
+        if (info) {
+          info.state = 'terminated';
+        }
+        break;
+    }
+  }
+
+  private captureOutput(sessionId: string, body: Record<string, unknown>) {
+    const output = body.output as string | undefined;
+    if (!output) return;
+    let outputs = this.outputs.get(sessionId);
+    if (!outputs) {
+      outputs = [];
+      this.outputs.set(sessionId, outputs);
+    }
+    outputs.push(output);
   }
 
   async listLaunchConfigs(): Promise<LaunchInfo[]> {
@@ -106,16 +214,35 @@ export class LaunchManager implements vscode.Disposable {
       if (inputValues && Object.keys(inputValues).length > 0 && config.rawConfig) {
         debugConfig = this.substituteInputs(config.rawConfig, inputValues) as vscode.DebugConfiguration;
       } else {
-        debugConfig = config.rawConfig as vscode.DebugConfiguration;
+        debugConfig = { ...config.rawConfig } as vscode.DebugConfiguration;
       }
+      let consoleOverridden = false;
+      const originalConsole = debugConfig.console;
+      if (originalConsole === 'integratedTerminal' || originalConsole === 'externalTerminal') {
+        if (!config.mcpOptions?.preserveConsole) {
+          debugConfig.console = 'internalConsole';
+          consoleOverridden = true;
+          console.warn(`[MCP] Overriding console "${originalConsole}" -> "internalConsole" for output capture. Set mcp.preserveConsole: true to disable.`);
+        }
+      }
+      const pendingId = `pending-${Date.now()}`;
+      this.pendingConsoleOverrides.set(pendingId, consoleOverridden);
       const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
       const started = await vscode.debug.startDebugging(workspaceFolder, debugConfig);
       if (!started) {
+        this.pendingConsoleOverrides.delete(pendingId);
         return { success: false, error: 'Failed to start debug session' };
       }
       const activeSession = vscode.debug.activeDebugSession;
       const sessionId = activeSession?.id || `debug-${Date.now()}`;
-      return { success: true, sessionId };
+      if (activeSession && consoleOverridden) {
+        const info = this.sessions.get(activeSession.id);
+        if (info) {
+          info.consoleOverridden = true;
+        }
+      }
+      this.pendingConsoleOverrides.delete(pendingId);
+      return { success: true, sessionId, consoleOverridden };
     } catch (error) {
       return { success: false, error: String(error) };
     }
@@ -150,10 +277,8 @@ export class LaunchManager implements vscode.Disposable {
   }
 
   private findSessionById(sessionId: string): vscode.DebugSession | undefined {
-    for (const session of vscode.debug.activeDebugSession ? [vscode.debug.activeDebugSession] : []) {
-      if (session.id === sessionId) {
-        return session;
-      }
+    if (vscode.debug.activeDebugSession?.id === sessionId) {
+      return vscode.debug.activeDebugSession;
     }
     return undefined;
   }
@@ -164,9 +289,11 @@ export class LaunchManager implements vscode.Disposable {
       name: session.name,
       type: session.type,
       status: 'active',
+      state: 'initializing',
       startTime: Date.now()
     };
     this.sessions.set(session.id, info);
+    this.outputs.set(session.id, []);
     console.log(`Debug session started: ${session.name} (${session.id})`);
   }
 
@@ -174,6 +301,7 @@ export class LaunchManager implements vscode.Disposable {
     const info = this.sessions.get(session.id);
     if (info) {
       info.status = 'terminated';
+      info.state = 'terminated';
       info.endTime = Date.now();
     }
     console.log(`Debug session terminated: ${session.name} (${session.id})`);
@@ -204,8 +332,57 @@ export class LaunchManager implements vscode.Disposable {
     return JSON.parse(substituted);
   }
 
+  getDebugOutput(sessionId?: string): DebugOutputResult {
+    const targetId = sessionId || vscode.debug.activeDebugSession?.id;
+    if (!targetId) {
+      return { success: false, error: 'No active debug session' };
+    }
+    const outputs = this.outputs.get(targetId);
+    if (!outputs) {
+      return { success: false, sessionId: targetId, error: 'Session not found or no output captured' };
+    }
+    return { success: true, sessionId: targetId, output: outputs.join('') };
+  }
+
+  async getStackTrace(sessionId?: string): Promise<StackTraceResult> {
+    const targetId = sessionId || vscode.debug.activeDebugSession?.id;
+    if (!targetId) {
+      return { success: false, error: 'No active debug session' };
+    }
+    const info = this.sessions.get(targetId);
+    if (!info) {
+      return { success: false, sessionId: targetId, error: 'Session not found' };
+    }
+    if (info.state !== 'paused') {
+      return { success: false, sessionId: targetId, error: `Session is not paused (state: ${info.state})` };
+    }
+    const threadId = info.stoppedThreadId;
+    if (!threadId) {
+      return { success: false, sessionId: targetId, error: 'No stopped thread ID available' };
+    }
+    const session = this.findSessionById(targetId);
+    if (!session) {
+      return { success: false, sessionId: targetId, error: 'Debug session not found' };
+    }
+    try {
+      const response = await session.customRequest('stackTrace', { threadId, startFrame: 0, levels: 20 });
+      const stackFrames: StackFrame[] = (response.stackFrames || []).map((frame: Record<string, unknown>) => ({
+        id: frame.id as number,
+        name: frame.name as string,
+        source: frame.source as { name?: string; path?: string } | undefined,
+        line: frame.line as number,
+        column: frame.column as number
+      }));
+      return { success: true, sessionId: targetId, threadId, stackFrames };
+    } catch (error) {
+      return { success: false, sessionId: targetId, error: `Failed to get stack trace: ${String(error)}` };
+    }
+  }
+
   dispose() {
     this.disposables.forEach((d) => d.dispose());
     this.sessions.clear();
+    this.outputs.clear();
+    this.pendingConsoleOverrides.clear();
   }
 }
