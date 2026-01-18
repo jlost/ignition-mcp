@@ -1,10 +1,7 @@
 <img src="docs/ignition-mcp-logo-flipped.jpg" alt="Ignition MCP Logo" width="150" align="right" />
 
 [![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/jostrand.ignition-mcp?label=VS%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=jostrand.ignition-mcp)
-[![Installs](https://img.shields.io/visual-studio-marketplace/i/jostrand.ignition-mcp)](https://marketplace.visualstudio.com/items?itemName=jostrand.ignition-mcp)
 [![Open VSX](https://img.shields.io/open-vsx/v/jostrand/ignition-mcp?label=Open%20VSX)](https://open-vsx.org/extension/jostrand/ignition-mcp)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![GitHub Release](https://img.shields.io/github/v/release/jlost/ignition-mcp)](https://github.com/jlost/ignition-mcp/releases)
 [![Power Level](https://img.shields.io/badge/power-%3E9000-ff6600)](https://www.youtube.com/watch?v=SiMHTK15Pik)
 
 # 🔥 Ignition MCP
@@ -140,16 +137,35 @@ Tasks and launch configurations support an optional `mcp` block for MCP-specific
 
 | Option | Values | Default | Description |
 |--------|--------|---------|-------------|
-| `returnOutput` | `always` / `onFailure` / `never` | `onFailure` | Controls when task output is included in MCP tool responses |
+| `returnOutput` | `always` / `onFailure` / `never` | `onFailure` | Controls when output is included in MCP tool responses |
+| `preserveConsole` | `true` / `false` | `false` | (Launch only) Keep original console setting instead of overriding |
 
 **`returnOutput` behavior:**
 - `always` - Always include full terminal output in the response
 - `onFailure` - Only include output when the task fails (exit code != 0)
-- `never` - Never include output (use `get_task_output` to retrieve it separately)
+- `never` - Never include output (use `get_task_output` or `get_debug_output` to retrieve it separately)
 
 This helps manage context size when working with AI assistants - successful builds don't need to send hundreds of lines of output, but failed builds should include the error details.
 
-The same `mcp` block works in launch configurations in `launch.json`.
+**`preserveConsole` behavior (launch configurations only):**
+
+Launch configurations with `"console": "integratedTerminal"` or `"externalTerminal"` are automatically changed to `"internalConsole"` so that debug output can be captured. Set `preserveConsole: true` to keep your original console setting:
+
+```json
+{
+  "name": "Run with Terminal",
+  "type": "node",
+  "request": "launch",
+  "console": "integratedTerminal",
+  "mcp": {
+    "preserveConsole": true
+  }
+}
+```
+
+Note: When `preserveConsole` is `true`, output goes to the terminal and cannot be captured by the extension.
+
+The `mcp` block works in both `tasks.json` and `launch.json`.
 
 ### 📋 Task Utility Tools
 
