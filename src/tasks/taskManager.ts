@@ -14,6 +14,7 @@ export interface TaskInputDefinition {
 export interface McpOptions {
   returnOutput?: 'always' | 'onFailure' | 'never';
   outputLimit?: number | null;
+  interactive?: boolean;
 }
 
 export interface TaskInfo {
@@ -133,6 +134,8 @@ export class TaskManager implements vscode.Disposable {
   private outputTruncated: Map<string, boolean> = new Map();
   private outputLimits: Map<string, number | null> = new Map();
   private activeExecutions: Map<string, vscode.TaskExecution> = new Map();
+  private executionToId: Map<vscode.TaskExecution, string> = new Map();
+  private interactiveExecutionIds: Set<string> = new Set();
   private disposables: vscode.Disposable[] = [];
 
   constructor() {
@@ -274,6 +277,9 @@ export class TaskManager implements vscode.Disposable {
       if (mcpOptions?.outputLimit !== undefined) {
         this.outputLimits.set(executionId, mcpOptions.outputLimit);
       }
+      if (mcpOptions?.interactive) {
+        return this.runTaskInteractive(task, executionId, inputValues);
+      }
       let rawCommand = this.getRawCommand(task);
       if (inputValues && Object.keys(inputValues).length > 0) {
         for (const [inputId, value] of Object.entries(inputValues)) {
@@ -314,6 +320,64 @@ export class TaskManager implements vscode.Disposable {
       this.activeExecutions.set(executionId, execution);
       return { success: true, executionId };
     } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  private async runTaskInteractive(
+    task: vscode.Task,
+    executionId: string,
+    inputValues?: Record<string, string>
+  ): Promise<TaskRunResult> {
+    try {
+      let taskToRun = task;
+      if (inputValues && Object.keys(inputValues).length > 0) {
+        const rawCommand = this.getRawCommand(task);
+        let resolvedCommand = rawCommand;
+        for (const [inputId, value] of Object.entries(inputValues)) {
+          const pattern = new RegExp(`\\$\\{input:${inputId}\\}`, 'g');
+          resolvedCommand = resolvedCommand.replace(pattern, value);
+        }
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        resolvedCommand = this.resolveVariables(resolvedCommand, workspaceFolder);
+        const shellExec = new vscode.ShellExecution(resolvedCommand);
+        taskToRun = new vscode.Task(
+          task.definition,
+          task.scope || vscode.TaskScope.Workspace,
+          task.name,
+          task.source,
+          shellExec,
+          task.problemMatchers
+        );
+        taskToRun.presentationOptions = {
+          ...task.presentationOptions,
+          reveal: vscode.TaskRevealKind.Always,
+          focus: true
+        };
+      } else {
+        const shellExec = task.execution;
+        taskToRun = new vscode.Task(
+          task.definition,
+          task.scope || vscode.TaskScope.Workspace,
+          task.name,
+          task.source,
+          shellExec,
+          task.problemMatchers
+        );
+        taskToRun.presentationOptions = {
+          ...task.presentationOptions,
+          reveal: vscode.TaskRevealKind.Always,
+          focus: true
+        };
+      }
+      this.interactiveExecutionIds.add(executionId);
+      const execution = await vscode.tasks.executeTask(taskToRun);
+      this.activeExecutions.set(executionId, execution);
+      this.executionToId.set(execution, executionId);
+      this.outputs.set(executionId, '[Interactive mode: output not captured]');
+      return { success: true, executionId };
+    } catch (error) {
+      this.interactiveExecutionIds.delete(executionId);
       return { success: false, error: String(error) };
     }
   }
@@ -436,15 +500,27 @@ export class TaskManager implements vscode.Disposable {
 
   private onTaskEnded(e: vscode.TaskEndEvent) {
     const taskName = e.execution.task.name;
-    for (const [execId, exec] of this.activeExecutions) {
-      if (exec === e.execution) {
-        this.activeExecutions.delete(execId);
-        const info = this.executions.get(execId);
-        if (info && info.status === 'running') {
-          info.status = 'completed';
-          info.endTime = Date.now();
+    const execId = this.executionToId.get(e.execution);
+    if (execId) {
+      this.activeExecutions.delete(execId);
+      this.executionToId.delete(e.execution);
+      this.interactiveExecutionIds.delete(execId);
+      const info = this.executions.get(execId);
+      if (info && info.status === 'running') {
+        info.status = 'completed';
+        info.endTime = Date.now();
+      }
+    } else {
+      for (const [id, exec] of this.activeExecutions) {
+        if (exec === e.execution) {
+          this.activeExecutions.delete(id);
+          const info = this.executions.get(id);
+          if (info && info.status === 'running') {
+            info.status = 'completed';
+            info.endTime = Date.now();
+          }
+          break;
         }
-        break;
       }
     }
     console.log(`Task ended: ${taskName}`);
@@ -452,18 +528,33 @@ export class TaskManager implements vscode.Disposable {
 
   private onTaskProcessEnded(e: vscode.TaskProcessEndEvent) {
     const taskName = e.execution.task.name;
-    for (const [execId, exec] of this.activeExecutions) {
-      if (exec === e.execution) {
-        const info = this.executions.get(execId);
-        if (info) {
-          info.exitCode = e.exitCode;
-          if (info.status === 'running') {
-            info.status = e.exitCode === 0 ? 'completed' : 'failed';
-            info.endTime = Date.now();
-          }
+    const execId = this.executionToId.get(e.execution);
+    if (execId) {
+      const info = this.executions.get(execId);
+      if (info) {
+        info.exitCode = e.exitCode;
+        if (info.status === 'running') {
+          info.status = e.exitCode === 0 ? 'completed' : 'failed';
+          info.endTime = Date.now();
         }
-        this.activeExecutions.delete(execId);
-        break;
+      }
+      this.activeExecutions.delete(execId);
+      this.executionToId.delete(e.execution);
+      this.interactiveExecutionIds.delete(execId);
+    } else {
+      for (const [id, exec] of this.activeExecutions) {
+        if (exec === e.execution) {
+          const info = this.executions.get(id);
+          if (info) {
+            info.exitCode = e.exitCode;
+            if (info.status === 'running') {
+              info.status = e.exitCode === 0 ? 'completed' : 'failed';
+              info.endTime = Date.now();
+            }
+          }
+          this.activeExecutions.delete(id);
+          break;
+        }
       }
     }
     console.log(`Task process ended: ${taskName} with exit code ${e.exitCode}`);
@@ -480,5 +571,7 @@ export class TaskManager implements vscode.Disposable {
     this.outputTruncated.clear();
     this.outputLimits.clear();
     this.activeExecutions.clear();
+    this.executionToId.clear();
+    this.interactiveExecutionIds.clear();
   }
 }

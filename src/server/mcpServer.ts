@@ -466,6 +466,9 @@ export class MCPServer {
     } else {
       parts.push('(waits for completion and returns result)');
     }
+    if (task.mcpOptions?.interactive) {
+      parts.push('[INTERACTIVE: runs in native terminal for user input, output not captured]');
+    }
     if (task.inputs && task.inputs.length > 0) {
       const inputNames = task.inputs.map(i => i.id).join(', ');
       parts.push(`Inputs: ${inputNames} (all optional - omit any to prompt user)`);
