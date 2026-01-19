@@ -176,15 +176,30 @@ export class LaunchManager implements vscode.Disposable {
       vscode.debug.registerDebugAdapterTrackerFactory('*', {
         createDebugAdapterTracker(session: vscode.DebugSession): vscode.ProviderResult<vscode.DebugAdapterTracker> {
           return {
-            onDidSendMessage(message: { type: string; event?: string; body?: Record<string, unknown> }) {
+            onDidSendMessage(message: { type: string; event?: string; command?: string; success?: boolean; body?: Record<string, unknown> }) {
               if (message.type === 'event') {
                 self.handleDebugEvent(session.id, message.event, message.body);
+              } else if (message.type === 'response' && message.success) {
+                self.handleDebugResponse(session.id, message.command);
               }
             }
           };
         }
       })
     );
+  }
+
+  private handleDebugResponse(sessionId: string, command: string | undefined) {
+    if (!command) return;
+    const resumeCommands = ['continue', 'next', 'stepIn', 'stepOut', 'stepBack'];
+    if (resumeCommands.includes(command)) {
+      const info = this.sessions.get(sessionId);
+      if (info) {
+        info.state = 'running';
+        info.stopReason = undefined;
+        info.stoppedThreadId = undefined;
+      }
+    }
   }
 
   private handleDebugEvent(sessionId: string, event: string | undefined, body: Record<string, unknown> | undefined) {
