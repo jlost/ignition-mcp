@@ -139,6 +139,7 @@ Tasks and launch configurations support an optional `mcp` block for MCP-specific
 |--------|--------|---------|-------------|
 | `returnOutput` | `always` / `onFailure` / `never` | `onFailure` | Controls when output is included in MCP tool responses |
 | `outputLimit` | number / `null` | `20480` | Max characters to capture (null = unlimited). Overrides global setting. |
+| `interactive` | `true` / `false` | `false` | (Task only) Run in native terminal for interactive input (e.g. sudo password) |
 | `preserveConsole` | `true` / `false` | `false` | (Launch only) Keep original console setting instead of overriding |
 
 **`returnOutput` behavior:**
@@ -147,6 +148,29 @@ Tasks and launch configurations support an optional `mcp` block for MCP-specific
 - `never` - Never include output (use `get_task_output` or `get_debug_output` to retrieve it separately)
 
 This helps manage context size when working with AI assistants - successful builds don't need to send hundreds of lines of output, but failed builds should include the error details.
+
+**`interactive` behavior (tasks only):**
+
+By default, tasks run in a headless pseudo-terminal that captures output but cannot accept interactive input. Set `interactive: true` for tasks that need user input:
+
+```json
+{
+  "label": "Sudo Command",
+  "type": "shell",
+  "command": "sudo ./my-script.sh",
+  "mcp": {
+    "interactive": true
+  }
+}
+```
+
+Use interactive mode when:
+- Tasks run `sudo` commands requiring password input
+- Tasks prompt for user confirmation (y/n)
+- Commands use `read` or similar interactive input
+- Any command that requires TTY support
+
+Note: When `interactive` is `true`, output cannot be captured. The task runs in VS Code's native terminal with focus, and the response will show `[Interactive mode: output not captured]`.
 
 **`preserveConsole` behavior (launch configurations only):**
 
