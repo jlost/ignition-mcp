@@ -6,83 +6,59 @@
 
 # 🔥 Ignition MCP
 
-A VS Code extension that exposes tasks and launch configurations via MCP (Model Context Protocol), letting AI assistants run your builds, tests, and debug sessions.
+**Declaratively build MCP tools and commit them to your repository.**
 
-**Works with:** VS Code + Copilot, Cursor, Claude Code, Claude Desktop, and any MCP-compatible client.
+Define tools in `tasks.json` and `launch.json`. Your AI assistant gets access to builds, tests, deployments, debug sessions - anything you can wrap in a script. Version-controlled, shared with your team, no MCP server code required.
 
-### 💡 Why not just use terminal commands?
+**Works with:** Cursor, VS Code + Copilot, Claude Code, Claude Desktop, and any MCP-compatible client.
 
-AI agents typically run `npm run build` in a shell. But your `tasks.json` and `launch.json` define more than commands - they include problem matchers, task dependencies, environment setup, input variables, and debug configurations.
+## 💡 Why not terminal commands?
 
-With Ignition MCP, your AI uses VS Code's task API directly: errors populate the Problems panel, `dependsOn` chains run automatically, input variables can be provided by AI or prompt the user, and debug sessions attach properly with breakpoints.
+AI agents typically run `npm run build` in a shell. But VS Code tasks offer more:
 
-## ✨ Features
+| Terminal | Ignition MCP |
+|----------|--------------|
+| Raw output text | Errors populate the Problems panel via problem matchers |
+| One command at a time | `dependsOn` chains run automatically |
+| AI must know all args | Input variables prompt the user or accept AI values |
+| No debug support | Full debug sessions with breakpoints and variable inspection |
 
-- 🌐 **MCP Server**: Runs an HTTP/SSE MCP server in the background
-- ⚡ **Task Execution**: Run any VS Code task (from tasks.json) via MCP
-- 🐛 **Debug Sessions**: Start any VS Code launch configuration (from launch.json) via MCP
-- 🔴 **Breakpoint Management**: Add, remove, and list breakpoints programmatically
-- 🔍 **Variable Inspection**: Get variables and evaluate expressions when paused
-- 📤 **Output Capture**: Get real-time task and debug console output
-- 📋 **Task Management**: List, run, cancel, and monitor task status
-- 🎯 **Debug Management**: List, start, stop, and control debug sessions
-- 🔧 **Auto-Configuration**: Automatic setup for VS Code, Cursor, and Claude
+Your `tasks.json` already defines how your project builds and runs. Ignition MCP exposes it to your AI.
 
-## 🚀 Usage Example
+## 🚀 Quick Start
 
-1. Define tasks in `.vscode/tasks.json`:
-   ```json
-   {
-     "version": "2.0.0",
-     "tasks": [
-       {
-         "label": "Build",
-         "type": "shell",
-         "command": "npm run build"
-       },
-       {
-         "label": "Test",
-         "type": "shell",
-         "command": "npm test"
-       },
-       {
-         "label": "Run Script",
-         "type": "shell",
-         "command": "npm run ${input:scriptName}"
-       }
-     ],
-     "inputs": [
-       {
-         "id": "scriptName",
-         "type": "pickString",
-         "description": "Which script to run?",
-         "options": ["dev", "build", "test", "lint"]
-       }
-     ]
-   }
-   ```
+1. **Define a task** in `.vscode/tasks.json`:
 
-2. The extension auto-configures the MCP server on startup with e.g.: 
 ```json
 {
-  "mcpServers": {
-    "ignition-mcp": {
-      "url": "http://localhost:<dynamic-port>/mcp"
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Deploy Staging",
+      "type": "shell",
+      "command": "python scripts/deploy.py --env ${input:environment}",
+      "detail": "Deploy to staging or production with zero-downtime rollout"
     }
-  }
+  ],
+  "inputs": [
+    {
+      "id": "environment",
+      "type": "pickString",
+      "options": ["staging", "production"]
+    }
+  ]
 }
 ```
 
-3. Ask your AI assistant to run tasks or start debugging:
-   - "Run the Build task"
-   - "List all available tasks"
-   - "Run tests and show me the output"
-   - "Run the lint script" (the AI will use the Run Script task with scriptName="lint")
-   - "Start debugging the app"
-   - "Set a breakpoint at line 42 in main.ts"
-   - "What are the current variable values?"
-   - "Evaluate `user.permissions` in the current context"
-   - "Continue execution"
+2. **The extension auto-configures** your MCP client on startup.
+
+3. **Ask your AI:**
+   - "Deploy to staging"
+   - "Run the build and show me any errors"
+   - "Start debugging and set a breakpoint at line 42"
+   - "What's the value of `user.permissions`?"
+
+The task becomes an MCP tool called `task_deploy_staging`. The AI can provide the environment input, or omit it to prompt you.
 
 ## 🔌 MCP Tools
 
