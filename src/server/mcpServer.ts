@@ -1,4 +1,5 @@
 import * as http from 'http';
+import * as vscode from 'vscode';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
@@ -17,6 +18,7 @@ export class MCPServer {
   private taskManager: TaskManager;
   private launchManager: LaunchManager;
   private onShutdownRequested?: ShutdownCallback;
+  private outputChannel: vscode.OutputChannel | null = null;
 
   constructor(
     taskManager: TaskManager,
@@ -32,6 +34,17 @@ export class MCPServer {
       name: 'ignition-mcp',
       version: '0.1.0'
     });
+  }
+
+  setOutputChannel(channel: vscode.OutputChannel) {
+    this.outputChannel = channel;
+  }
+
+  private log(message: string) {
+    const timestamp = new Date().toLocaleTimeString();
+    const fullMessage = `[${timestamp}] [MCPServer] ${message}`;
+    this.outputChannel?.appendLine(fullMessage);
+    console.log(fullMessage);
   }
 
   private sanitizeToolName(name: string, prefix: string): string {
@@ -289,7 +302,7 @@ export class MCPServer {
     for (const task of tasks) {
       this.registerTaskTool(task);
     }
-    console.log(`Registered ${tasks.length} task tools`);
+    this.log(`Registered ${tasks.length} task tools`);
   }
 
   private buildInputSchema(inputs: InputDefinition[]): Record<string, z.ZodOptional<z.ZodString>> {
@@ -481,7 +494,7 @@ export class MCPServer {
     for (const config of configs) {
       this.registerLaunchTool(config);
     }
-    console.log(`Registered ${configs.length} launch tools`);
+    this.log(`Registered ${configs.length} launch tools`);
   }
 
   private registerLaunchTool(config: LaunchInfo) {
@@ -593,7 +606,7 @@ export class MCPServer {
       });
       // Explicitly listen on 0.0.0.0 to ensure both IPv4 and IPv6 work via loopback
       this.server.listen(this.port, '0.0.0.0', () => {
-        console.log(`MCP server listening on port ${this.port}`);
+        this.log(`MCP server listening on port ${this.port}`);
         resolve();
       });
     });
@@ -608,7 +621,7 @@ export class MCPServer {
     try {
       await this.transport.handleRequest(req, res);
     } catch (error) {
-      console.error('Error handling MCP request:', error);
+      this.log(`Error handling MCP request: ${error}`);
       if (!res.headersSent) {
         res.writeHead(500);
         res.end('Internal server error');

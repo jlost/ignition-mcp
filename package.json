@@ -64,7 +64,10 @@
       "title": "Ignition MCP",
       "properties": {
         "ignition-mcp.outputLimit": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "default": 20480,
           "minimum": 1024,
           "description": "Default maximum characters to capture from task and debug output. Can be overridden per-task/launch via mcp.outputLimit in tasks.json/launch.json. Set to null for unlimited. Default is 20480 (20KB)."
@@ -98,6 +101,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "jsonc-parser": "^3.3.1",
     "zod": "^3.22.0"
   }
 }

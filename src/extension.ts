@@ -26,6 +26,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(outputChannel);
   log('Ignition MCP extension activating...');
   taskManager = new TaskManager();
+  taskManager.setOutputChannel(outputChannel);
   launchManager = new LaunchManager();
   context.subscriptions.push(taskManager);
   context.subscriptions.push(launchManager);
@@ -125,6 +126,9 @@ async function enableServer() {
   try {
     log(`Starting MCP server on port ${currentPort}...`);
     mcpServer = new MCPServer(taskManager, launchManager, currentPort, handleShutdownRequested);
+    if (outputChannel) {
+      mcpServer.setOutputChannel(outputChannel);
+    }
     await mcpServer.start();
     serverState = 'running';
     updateStatusBar();

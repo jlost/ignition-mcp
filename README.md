@@ -98,17 +98,27 @@ Each launch configuration defined in your workspace becomes a tool named `launch
 
 ### ⚙️ MCP Options
 
-Tasks and launch configurations support an optional `mcp` block for MCP-specific settings. Hover over options in your editor for full documentation.
+Tasks support MCP options inside the `options` block. Launch configurations use them at the top level (you'll see a schema warning, but it works correctly). Hover over options in your editor for full documentation.
 
+**Task example:**
 ```json
 {
   "label": "Build",
   "type": "shell",
   "command": "npm run build",
-  "mcp": {
-    "returnOutput": "onFailure",
-    "interactive": true
+  "options": {
+    "mcp": { "returnOutput": "onFailure", "interactive": true }
   }
+}
+```
+
+**Launch example:**
+```json
+{
+  "name": "Debug",
+  "type": "node",
+  "request": "launch",
+  "mcp": { "preserveConsole": true }
 }
 ```
 

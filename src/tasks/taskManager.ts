@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as cp from 'child_process';
+import * as jsonc from 'jsonc-parser';
 
 export interface TaskInputDefinition {
   id: string;
@@ -137,6 +138,7 @@ export class TaskManager implements vscode.Disposable {
   private executionToId: Map<vscode.TaskExecution, string> = new Map();
   private interactiveExecutionIds: Set<string> = new Set();
   private disposables: vscode.Disposable[] = [];
+  private outputChannel: vscode.OutputChannel | null = null;
 
   constructor() {
     this.disposables.push(
@@ -144,6 +146,17 @@ export class TaskManager implements vscode.Disposable {
       vscode.tasks.onDidEndTask((e) => this.onTaskEnded(e)),
       vscode.tasks.onDidEndTaskProcess((e) => this.onTaskProcessEnded(e))
     );
+  }
+
+  setOutputChannel(channel: vscode.OutputChannel) {
+    this.outputChannel = channel;
+  }
+
+  private log(message: string) {
+    const timestamp = new Date().toLocaleTimeString();
+    const fullMessage = `[${timestamp}] [TaskManager] ${message}`;
+    this.outputChannel?.appendLine(fullMessage);
+    console.log(fullMessage);
   }
 
   private getDefaultOutputLimit(): number | null {
@@ -167,10 +180,13 @@ export class TaskManager implements vscode.Disposable {
   }
 
   async listTasks(): Promise<TaskInfo[]> {
+    this.log(`listTasks called`);
     const tasks = await vscode.tasks.fetchTasks();
+    this.log(`Found ${tasks.length} VS Code tasks`);
     const tasksJsonData = this.readTasksJson();
     const inputDefinitions = tasksJsonData?.inputs || [];
     const rawTasks = tasksJsonData?.tasks || [];
+    this.log(`Read ${rawTasks.length} tasks from tasks.json`);
     return tasks.map((task) => {
       const rawCommand = this.getRawCommand(task);
       const usedInputIds = this.findInputReferences(rawCommand);
@@ -178,7 +194,18 @@ export class TaskManager implements vscode.Disposable {
         ? inputDefinitions.filter((inp: TaskInputDefinition) => usedInputIds.includes(inp.id))
         : undefined;
       const rawTaskEntry = rawTasks.find((t) => t.label === task.name);
-      const mcpOptions = rawTaskEntry?.mcp;
+      const mcpOptions = rawTaskEntry?.options?.mcp;
+      if (mcpOptions) {
+        this.log(`Task "${task.name}" has mcpOptions: ${JSON.stringify(mcpOptions)}`);
+      } else if (task.name === 'CRC Refresh') {
+        this.log(`Task "CRC Refresh" found but NO mcpOptions. rawTaskEntry: ${JSON.stringify(rawTaskEntry)}`);
+        this.log(`Task object keys: ${Object.keys(task)}`);
+        this.log(`Task definition: ${JSON.stringify(task.definition)}`);
+        const exec = task.execution;
+        if (exec && 'options' in exec) {
+          this.log(`Execution options: ${JSON.stringify((exec as { options?: unknown }).options)}`);
+        }
+      }
       return {
         name: task.name,
         source: task.source,
@@ -200,21 +227,33 @@ export class TaskManager implements vscode.Disposable {
 
   private readTasksJson(): { 
     inputs?: TaskInputDefinition[]; 
-    tasks?: Array<{ label?: string; mcp?: McpOptions }> 
+    tasks?: Array<{ label?: string; options?: { mcp?: McpOptions } }> 
   } | null {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
+      this.log('readTasksJson: No workspace folders');
       return null;
     }
     const tasksJsonPath = path.join(workspaceFolders[0].uri.fsPath, '.vscode', 'tasks.json');
     if (!fs.existsSync(tasksJsonPath)) {
+      this.log(`readTasksJson: tasks.json not found at ${tasksJsonPath}`);
       return null;
     }
     try {
       const content = fs.readFileSync(tasksJsonPath, 'utf-8');
-      const cleanedContent = content.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
-      return JSON.parse(cleanedContent);
-    } catch {
+      const errors: jsonc.ParseError[] = [];
+      const parsed = jsonc.parse(content, errors, { allowTrailingComma: true });
+      if (errors.length > 0) {
+        this.log(`readTasksJson: JSONC parse warnings: ${errors.map(e => jsonc.printParseErrorCode(e.error)).join(', ')}`);
+      }
+      this.log(`readTasksJson: Successfully parsed tasks.json from ${tasksJsonPath}`);
+      const tasksWithMcp = parsed?.tasks?.filter((t: { options?: { mcp?: McpOptions } }) => t.options?.mcp);
+      if (tasksWithMcp?.length > 0) {
+        this.log(`Tasks with mcp options: ${tasksWithMcp.map((t: { label?: string }) => t.label).join(', ')}`);
+      }
+      return parsed;
+    } catch (err) {
+      this.log(`readTasksJson: Error parsing tasks.json: ${err}`);
       return null;
     }
   }
@@ -259,6 +298,7 @@ export class TaskManager implements vscode.Disposable {
   }
 
   async runTask(taskName: string, inputValues?: Record<string, string>, mcpOptions?: McpOptions): Promise<TaskRunResult> {
+    this.log(`runTask called for "${taskName}" with mcpOptions: ${JSON.stringify(mcpOptions)}`);
     const tasks = await vscode.tasks.fetchTasks();
     const task = tasks.find((t) => t.name === taskName);
     if (!task) {
@@ -278,8 +318,10 @@ export class TaskManager implements vscode.Disposable {
         this.outputLimits.set(executionId, mcpOptions.outputLimit);
       }
       if (mcpOptions?.interactive) {
+        this.log(`Running task "${taskName}" in INTERACTIVE mode`);
         return this.runTaskInteractive(task, executionId, inputValues);
       }
+      this.log(`Running task "${taskName}" in CAPTURE mode`);
       let rawCommand = this.getRawCommand(task);
       if (inputValues && Object.keys(inputValues).length > 0) {
         for (const [inputId, value] of Object.entries(inputValues)) {

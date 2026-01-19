@@ -12,6 +12,9 @@ const buildOptions = {
   target: 'node18',
   sourcemap: true,
   minify: !isWatch,
+  // Prefer ESM modules over CommonJS/UMD to ensure static imports are used.
+  // This fixes bundling issues with jsonc-parser which has dynamic requires in its UMD build.
+  mainFields: ['module', 'main'],
 };
 
 async function build() {

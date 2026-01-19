@@ -9,7 +9,7 @@
         "properties": {
           "mcp": {
             "type": "object",
-            "description": "MCP-specific options for Ignition MCP extension. Controls how AI assistants interact with this debug configuration.",
+            "description": "MCP-specific options for Ignition MCP extension. Note: VS Code may show a schema warning for this property, but it works correctly.",
             "properties": {
               "returnOutput": {
                 "type": "string",
