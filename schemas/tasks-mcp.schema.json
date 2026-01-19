@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "mcp": {
+            "type": "object",
+            "description": "MCP-specific options for Ignition MCP extension. Controls how AI assistants interact with this task.",
+            "properties": {
+              "returnOutput": {
+                "type": "string",
+                "enum": ["always", "onFailure", "never"],
+                "default": "onFailure",
+                "markdownDescription": "Controls when terminal output is included in MCP tool responses.\n\n- `always` - Always include full terminal output\n- `onFailure` - Only include output when exit code != 0 (default)\n- `never` - Never include output; use `get_task_output` to retrieve separately\n\nHelps manage AI context size: successful builds don't need hundreds of lines of output, but failed builds should include error details."
+              },
+              "outputLimit": {
+                "type": ["integer", "null"],
+                "minimum": 1024,
+                "default": 20480,
+                "markdownDescription": "Maximum characters to capture from task output. Default is 20480 (20KB). Set to `null` for unlimited. Overrides the global `ignition-mcp.outputLimit` setting."
+              },
+              "interactive": {
+                "type": "boolean",
+                "default": false,
+                "markdownDescription": "Run task in VS Code's native terminal with full TTY support for interactive input.\n\n**Use when:**\n- Task runs `sudo` commands requiring password input\n- Task prompts for user confirmation (y/n)\n- Commands use `read` or similar interactive input\n- Any command requiring TTY support\n\n**Trade-off:** Output cannot be captured in this mode. The MCP response will show `[Interactive mode: output not captured]`. The terminal will open with focus so the user can interact."
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  }
+}

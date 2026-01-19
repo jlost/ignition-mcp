@@ -70,7 +70,17 @@
           "description": "Default maximum characters to capture from task and debug output. Can be overridden per-task/launch via mcp.outputLimit in tasks.json/launch.json. Set to null for unlimited. Default is 20480 (20KB)."
         }
       }
-    }
+    },
+    "jsonValidation": [
+      {
+        "fileMatch": ".vscode/tasks.json",
+        "url": "./schemas/tasks-mcp.schema.json"
+      },
+      {
+        "fileMatch": ".vscode/launch.json",
+        "url": "./schemas/launch-mcp.schema.json"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run build",

@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "configurations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "mcp": {
+            "type": "object",
+            "description": "MCP-specific options for Ignition MCP extension. Controls how AI assistants interact with this debug configuration.",
+            "properties": {
+              "returnOutput": {
+                "type": "string",
+                "enum": ["always", "onFailure", "never"],
+                "default": "onFailure",
+                "markdownDescription": "Controls when debug console output is included in MCP tool responses.\n\n- `always` - Always include full debug output\n- `onFailure` - Only include output when session ends with error (default)\n- `never` - Never include output; use `get_debug_output` to retrieve separately\n\nHelps manage AI context size: successful runs don't need hundreds of lines of output, but failed runs should include error details."
+              },
+              "outputLimit": {
+                "type": ["integer", "null"],
+                "minimum": 1024,
+                "default": 20480,
+                "markdownDescription": "Maximum characters to capture from debug console output. Default is 20480 (20KB). Set to `null` for unlimited. Overrides the global `ignition-mcp.outputLimit` setting."
+              },
+              "preserveConsole": {
+                "type": "boolean",
+                "default": false,
+                "markdownDescription": "Keep your original `console` setting instead of overriding it.\n\n**Default behavior:** Configurations with `console: integratedTerminal` or `console: externalTerminal` are automatically changed to `internalConsole` so debug output can be captured by the extension.\n\n**When true:** Your original console setting is preserved, but output goes to the terminal and **cannot be captured** by the extension. Use this when you need terminal features (colors, interactive input) and don't need AI to see the output."
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  }
+}
