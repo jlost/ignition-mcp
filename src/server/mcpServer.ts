@@ -580,6 +580,8 @@ export class MCPServer {
     await this.mcpServer.connect(this.transport);
     return new Promise((resolve, reject) => {
       this.server = http.createServer(async (req, res) => {
+        const url = new URL(req.url || '/', `http://localhost:${this.port}`);
+        this.log(`HTTP ${req.method} ${url.pathname}`);
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -588,7 +590,6 @@ export class MCPServer {
           res.end();
           return;
         }
-        const url = new URL(req.url || '/', `http://localhost:${this.port}`);
         if (url.pathname === '/mcp') {
           await this.handleMcp(req, res);
         } else if (url.pathname === '/health' && req.method === 'GET') {
@@ -614,14 +615,17 @@ export class MCPServer {
 
   private async handleMcp(req: http.IncomingMessage, res: http.ServerResponse) {
     if (!this.transport) {
+      this.log('MCP request failed: transport not initialized');
       res.writeHead(500);
       res.end('Transport not initialized');
       return;
     }
+    const startTime = Date.now();
     try {
       await this.transport.handleRequest(req, res);
+      this.log(`MCP request completed in ${Date.now() - startTime}ms`);
     } catch (error) {
-      this.log(`Error handling MCP request: ${error}`);
+      this.log(`MCP request failed after ${Date.now() - startTime}ms: ${error}`);
       if (!res.headersSent) {
         res.writeHead(500);
         res.end('Internal server error');
