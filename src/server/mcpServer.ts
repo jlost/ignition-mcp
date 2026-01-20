@@ -19,6 +19,8 @@ export class MCPServer {
   private launchManager: LaunchManager;
   private onShutdownRequested?: ShutdownCallback;
   private outputChannel: vscode.OutputChannel | null = null;
+  private readyPromise: Promise<void>;
+  private resolveReady!: () => void;
 
   constructor(
     taskManager: TaskManager,
@@ -33,6 +35,10 @@ export class MCPServer {
     this.mcpServer = new McpServer({
       name: 'ignition-mcp',
       version: '0.1.0'
+    });
+    // Promise that resolves when transport is ready
+    this.readyPromise = new Promise((resolve) => {
+      this.resolveReady = resolve;
     });
   }
 
@@ -439,7 +445,7 @@ export class MCPServer {
           }
           const response: Record<string, unknown> = {
             status: 'started',
-            message: `Background task "${task.name}" started. Use get_task_status or get_task_output with the executionId to check progress.`,
+            message: `Background task "${task.name}" started. Use await_task to wait for completion.`,
             executionId: result.executionId,
             isBackground: true
           };
@@ -608,7 +614,7 @@ export class MCPServer {
           status: 'started',
           message: `Debug session "${config.name}" started.`,
           sessionId: result.sessionId,
-          note: 'Use get_debug_status to check session state, get_debug_output for console output, get_stack_trace when paused.'
+          note: 'Use await_debug_event to wait for state changes (breakpoint, exception, or termination).'
         };
         if (result.consoleOverridden) {
           response.consoleOverridden = true;
@@ -646,6 +652,7 @@ export class MCPServer {
       const inputNames = allInputs.map(i => i.id).join(', ');
       parts.push(`Inputs: ${inputNames}.`);
     }
+    parts.push('(starts and returns immediately)');
     return parts.join(' ');
   }
 
@@ -756,17 +763,16 @@ export class MCPServer {
     });
     await this.mcpServer.connect(this.transport);
     this.log('MCP transport connected, ready for requests');
+    // Signal that we're ready - unblocks any waiting requests
+    this.resolveReady();
   }
 
   private async handleMcp(req: http.IncomingMessage, res: http.ServerResponse) {
+    // Wait for transport to be ready if not yet initialized
     if (!this.transport) {
-      this.log('MCP request received while initializing - returning 503');
-      res.writeHead(503, {
-        'Content-Type': 'application/json',
-        'Retry-After': '2'
-      });
-      res.end(JSON.stringify({ error: 'Server initializing, please retry' }));
-      return;
+      this.log('MCP request received while initializing - waiting for ready...');
+      await this.readyPromise;
+      this.log('Server now ready, processing deferred request');
     }
     const startTime = Date.now();
     try {
@@ -775,14 +781,15 @@ export class MCPServer {
         const body = await this.readRequestBody(req);
         const parsedBody = JSON.parse(body);
         // Check if this is an initialize request while we're already initialized
-        if (this.isInitializeRequest(parsedBody) && this.transport.sessionId) {
+        if (this.isInitializeRequest(parsedBody) && this.transport!.sessionId) {
           this.log('Received initialize request while already initialized - recreating transport');
           await this.recreateTransport();
         }
         // Pass the pre-parsed body to avoid re-reading the stream
-        await this.transport.handleRequest(req, res, parsedBody);
+        // Use this.transport! to get the current transport (may have been recreated)
+        await this.transport!.handleRequest(req, res, parsedBody);
       } else {
-        await this.transport.handleRequest(req, res);
+        await this.transport!.handleRequest(req, res);
       }
       this.log(`MCP request completed in ${Date.now() - startTime}ms`);
     } catch (error) {
