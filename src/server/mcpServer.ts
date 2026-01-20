@@ -305,22 +305,34 @@ export class MCPServer {
     this.log(`Registered ${tasks.length} task tools`);
   }
 
-  private buildInputSchema(inputs: InputDefinition[]): Record<string, z.ZodOptional<z.ZodString>> {
-    const schema: Record<string, z.ZodOptional<z.ZodString>> = {};
+  private buildInputSchema(inputs: InputDefinition[]): Record<string, z.ZodTypeAny> {
+    const schema: Record<string, z.ZodTypeAny> = {};
     for (const input of inputs) {
-      let zodField = z.string();
       const descParts: string[] = [];
       if (input.description) {
         descParts.push(input.description);
       }
-      if (input.type === 'pickString' && input.options) {
-        descParts.push(`Options: ${input.options.join(', ')}`);
+      let zodField: z.ZodTypeAny;
+      if (input.type === 'pickString' && input.options && input.options.length > 0) {
+        const literals: z.ZodLiteral<string>[] = [];
+        for (const opt of input.options) {
+          if (typeof opt === 'string') {
+            literals.push(z.literal(opt).describe(opt));
+          } else {
+            literals.push(z.literal(opt.value).describe(opt.label));
+          }
+        }
+        zodField = z.union(literals as [z.ZodLiteral<string>, z.ZodLiteral<string>, ...z.ZodLiteral<string>[]]);
+      } else {
+        zodField = z.string();
       }
       if (input.default) {
         descParts.push(`Default: ${input.default}`);
       }
       descParts.push('(optional - omit to prompt user)');
-      zodField = zodField.describe(descParts.join('. '));
+      if (descParts.length > 0) {
+        zodField = zodField.describe(descParts.join('. '));
+      }
       schema[input.id] = zodField.optional();
     }
     return schema;

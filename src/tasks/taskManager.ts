@@ -4,12 +4,17 @@ import * as path from 'path';
 import * as cp from 'child_process';
 import * as jsonc from 'jsonc-parser';
 
+export interface PickStringOption {
+  label: string;
+  value: string;
+}
+
 export interface TaskInputDefinition {
   id: string;
   type: 'promptString' | 'pickString' | 'command';
   description?: string;
   default?: string;
-  options?: string[];
+  options?: (string | PickStringOption)[];
 }
 
 export interface McpOptions {

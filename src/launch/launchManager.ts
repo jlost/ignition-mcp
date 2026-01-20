@@ -1,11 +1,16 @@
 import * as vscode from 'vscode';
 
+export interface PickStringOption {
+  label: string;
+  value: string;
+}
+
 export interface LaunchInputDefinition {
   id: string;
   type: 'promptString' | 'pickString' | 'command';
   description?: string;
   default?: string;
-  options?: string[];
+  options?: (string | PickStringOption)[];
 }
 
 export interface McpOptions {
