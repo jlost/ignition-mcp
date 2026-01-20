@@ -596,18 +596,82 @@ export class MCPServer {
   }
 
   private buildLaunchDescription(config: LaunchInfo, allInputs: InputDefinition[]): string {
+    const raw = config.rawConfig || {};
     const parts: string[] = [];
-    parts.push(`Start VS Code debug session "${config.name}"`);
-    parts.push(`[type: ${config.type}, request: ${config.request}]`);
-    if (config.preLaunchTask) {
-      parts.push(`(runs "${config.preLaunchTask}" first)`);
+    parts.push(this.buildLaunchPurpose(config, raw));
+    const hints = this.extractLaunchHints(raw);
+    if (hints.length > 0) {
+      parts.push(hints.join('. ') + '.');
     }
-    parts.push('(debug sessions are long-running, returns immediately)');
+    if (config.preLaunchTask) {
+      parts.push(`Runs "${config.preLaunchTask}" task first.`);
+    }
     if (allInputs.length > 0) {
       const inputNames = allInputs.map(i => i.id).join(', ');
-      parts.push(`Inputs: ${inputNames} (all optional - omit any to prompt user)`);
+      parts.push(`Inputs: ${inputNames}.`);
     }
     return parts.join(' ');
+  }
+
+  private buildLaunchPurpose(config: LaunchInfo, raw: Record<string, unknown>): string {
+    const lang = this.getLaunchLanguage(config.type);
+    const mode = raw['mode'] as string | undefined;
+    const module = raw['module'] as string | undefined;
+    if (config.request === 'attach') {
+      if (mode === 'remote') {
+        return `Attach to remote ${lang} process.`;
+      }
+      return `Attach to ${lang} process.`;
+    }
+    if (mode === 'test') {
+      const program = raw['program'] as string | undefined;
+      if (program?.includes('${fileDirname}')) {
+        return `Debug ${lang} tests in current package.`;
+      }
+      return `Debug ${lang} tests.`;
+    }
+    if (module === 'pytest') {
+      return `Debug Python pytest tests.`;
+    }
+    if (module) {
+      return `Debug Python module "${module}".`;
+    }
+    return `Debug ${lang} program.`;
+  }
+
+  private getLaunchLanguage(type: string): string {
+    const langMap: Record<string, string> = {
+      'go': 'Go',
+      'debugpy': 'Python',
+      'python': 'Python',
+      'node': 'Node.js',
+      'pwa-node': 'Node.js',
+      'cppdbg': 'C/C++',
+      'lldb': 'C/C++',
+      'coreclr': '.NET',
+      'java': 'Java',
+      'rust': 'Rust',
+    };
+    return langMap[type] || type;
+  }
+
+  private extractLaunchHints(raw: Record<string, unknown>): string[] {
+    const hints: string[] = [];
+    const substitutePath = raw['substitutePath'] as Array<{ from?: string; to?: string }> | undefined;
+    if (substitutePath && substitutePath.length > 0) {
+      const firstMapping = substitutePath[0];
+      if (firstMapping.to) {
+        hints.push(`Workspace mapped to ${firstMapping.to}`);
+      }
+    }
+    if (raw['justMyCode'] === false) {
+      hints.push('Steps into library code');
+    }
+    const env = raw['env'] as Record<string, string> | undefined;
+    if (env && Object.keys(env).length > 0) {
+      hints.push('Custom environment variables');
+    }
+    return hints;
   }
 
   async start(): Promise<void> {
