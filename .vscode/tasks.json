@@ -4,6 +4,8 @@
     {
       "type": "npm",
       "script": "watch",
+      "label": "npm: watch",
+      "detail": "Continuous build with file watching. Use during active development sessions when making iterative code changes. Runs as a background task and automatically rebuilds on file changes. Preferred for the 'Run Extension' launch configuration.",
       "isBackground": true,
       "presentation": {
         "reveal": "never"
@@ -12,7 +14,6 @@
         "kind": "build",
         "isDefault": true
       },
-      "label": "npm: watch",
       "problemMatcher": {
         "owner": "typescript",
         "source": "esbuild",
@@ -35,8 +36,9 @@
     {
       "type": "npm",
       "script": "build",
-      "group": "build",
       "label": "npm: build",
+      "detail": "One-time production build. Use for single builds before testing, packaging (.vsix), or when you need a clean build without watch mode overhead. Used by 'Run Extension (No Watch)' and 'Run Extension (kserve workspace)' launch configurations.",
+      "group": "build",
       "problemMatcher": {
         "owner": "typescript",
         "source": "esbuild",
@@ -50,6 +52,13 @@
           "message": 5
         }
       }
+    },
+    {
+      "type": "npm",
+      "script": "package",
+      "label": "npm: package",
+      "detail": "Create a .vsix package for distribution. Use when preparing to publish or share the extension. Automatically runs 'npm run build' first via vscode:prepublish.",
+      "problemMatcher": []
     }
   ]
 }

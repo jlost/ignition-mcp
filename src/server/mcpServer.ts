@@ -726,7 +726,20 @@ export class MCPServer {
     }
     const startTime = Date.now();
     try {
-      await this.transport.handleRequest(req, res);
+      // For POST requests, check if this is a re-initialization attempt
+      if (req.method === 'POST') {
+        const body = await this.readRequestBody(req);
+        const parsedBody = JSON.parse(body);
+        // Check if this is an initialize request while we're already initialized
+        if (this.isInitializeRequest(parsedBody) && this.transport.sessionId) {
+          this.log('Received initialize request while already initialized - recreating transport');
+          await this.recreateTransport();
+        }
+        // Pass the pre-parsed body to avoid re-reading the stream
+        await this.transport.handleRequest(req, res, parsedBody);
+      } else {
+        await this.transport.handleRequest(req, res);
+      }
       this.log(`MCP request completed in ${Date.now() - startTime}ms`);
     } catch (error) {
       this.log(`MCP request failed after ${Date.now() - startTime}ms: ${error}`);
@@ -735,6 +748,32 @@ export class MCPServer {
         res.end('Internal server error');
       }
     }
+  }
+
+  private async readRequestBody(req: http.IncomingMessage): Promise<string> {
+    let body = '';
+    for await (const chunk of req) {
+      body += chunk;
+    }
+    return body;
+  }
+
+  private isInitializeRequest(body: unknown): boolean {
+    // Handle both single request and batch request formats
+    if (Array.isArray(body)) {
+      return body.some(msg => msg?.method === 'initialize');
+    }
+    return (body as { method?: string })?.method === 'initialize';
+  }
+
+  private async recreateTransport(): Promise<void> {
+    if (this.transport) {
+      await this.transport.close();
+    }
+    this.transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => `session-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    });
+    await this.mcpServer.connect(this.transport);
   }
 
   private async handleShutdown(req: http.IncomingMessage, res: http.ServerResponse) {
