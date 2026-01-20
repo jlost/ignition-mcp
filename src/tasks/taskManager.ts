@@ -68,6 +68,16 @@ export interface TaskCancelResult {
   error?: string;
 }
 
+export interface TaskAwaitResult {
+  success: boolean;
+  executionId: string;
+  status?: TaskExecutionInfo['status'];
+  exitCode?: number;
+  output?: string;
+  truncated?: boolean;
+  error?: string;
+}
+
 class OutputCapturePty implements vscode.Pseudoterminal {
   private writeEmitter = new vscode.EventEmitter<string>();
   private closeEmitter = new vscode.EventEmitter<number>();
@@ -583,6 +593,65 @@ export class TaskManager implements vscode.Disposable {
     } catch (error) {
       return { success: false, error: String(error) };
     }
+  }
+
+  private getDefaultAwaitTimeout(): number {
+    const config = vscode.workspace.getConfiguration('ignition-mcp');
+    return config.get<number>('awaitTimeout', 300000);
+  }
+
+  async awaitTask(executionId: string, timeoutMs?: number): Promise<TaskAwaitResult> {
+    const info = this.executions.get(executionId);
+    if (!info) {
+      return { success: false, executionId, error: 'Execution not found' };
+    }
+    if (info.status !== 'running') {
+      const output = this.outputs.get(executionId);
+      const truncated = this.outputTruncated.get(executionId);
+      return {
+        success: info.status === 'completed',
+        executionId,
+        status: info.status,
+        exitCode: info.exitCode,
+        output,
+        truncated
+      };
+    }
+    const timeout = timeoutMs ?? this.getDefaultAwaitTimeout();
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+      const checkStatus = () => {
+        const currentInfo = this.executions.get(executionId);
+        if (!currentInfo) {
+          resolve({ success: false, executionId, error: 'Execution info lost' });
+          return;
+        }
+        if (currentInfo.status !== 'running') {
+          const output = this.outputs.get(executionId);
+          const truncated = this.outputTruncated.get(executionId);
+          resolve({
+            success: currentInfo.status === 'completed',
+            executionId,
+            status: currentInfo.status,
+            exitCode: currentInfo.exitCode,
+            output,
+            truncated
+          });
+          return;
+        }
+        if (Date.now() - startTime > timeout) {
+          resolve({
+            success: false,
+            executionId,
+            status: 'running',
+            error: `Await timed out after ${timeout}ms (task still running)`
+          });
+          return;
+        }
+        setTimeout(checkStatus, 100);
+      };
+      checkStatus();
+    });
   }
 
   private onTaskStarted(e: vscode.TaskStartEvent) {

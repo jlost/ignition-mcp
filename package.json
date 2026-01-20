@@ -71,6 +71,12 @@
           "default": 20480,
           "minimum": 1024,
           "description": "Default maximum characters to capture from task and debug output. Can be overridden per-task/launch via mcp.outputLimit in tasks.json/launch.json. Set to null for unlimited. Default is 20480 (20KB)."
+        },
+        "ignition-mcp.awaitTimeout": {
+          "type": "integer",
+          "default": 300000,
+          "minimum": 1000,
+          "description": "Default timeout in milliseconds for await_task and await_debug_event tools. Can be overridden per-call via timeoutMs parameter. Default is 300000 (5 minutes)."
         }
       }
     },

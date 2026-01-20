@@ -147,6 +147,19 @@ export interface ContinueResult {
   error?: string;
 }
 
+export interface AwaitStateChangeResult {
+  success: boolean;
+  sessionId?: string;
+  previousState?: DebugSessionInfo['state'];
+  currentState?: DebugSessionInfo['state'];
+  stopReason?: string;
+  exceptionInfo?: ExceptionInfo;
+  terminated?: boolean;
+  error?: string;
+}
+
+type StateChangeCallback = (sessionId: string, newState: DebugSessionInfo['state'], info: DebugSessionInfo) => void;
+
 export class LaunchManager implements vscode.Disposable {
   private sessions: Map<string, DebugSessionInfo> = new Map();
   private outputs: Map<string, string[]> = new Map();
@@ -155,6 +168,7 @@ export class LaunchManager implements vscode.Disposable {
   private outputLimits: Map<string, number | null> = new Map();
   private pendingOutputLimits: Map<string, number | null> = new Map();
   private pendingConsoleOverrides: Map<string, boolean> = new Map();
+  private stateChangeCallbacks: Map<string, StateChangeCallback[]> = new Map();
   private disposables: vscode.Disposable[] = [];
 
   constructor() {
@@ -210,6 +224,7 @@ export class LaunchManager implements vscode.Disposable {
   private handleDebugEvent(sessionId: string, event: string | undefined, body: Record<string, unknown> | undefined) {
     const info = this.sessions.get(sessionId);
     if (!body) return;
+    const previousState = info?.state;
     switch (event) {
       case 'initialized':
         if (info) {
@@ -246,6 +261,101 @@ export class LaunchManager implements vscode.Disposable {
         }
         break;
     }
+    if (info && previousState !== info.state) {
+      this.notifyStateChange(sessionId, info.state, info);
+    }
+  }
+
+  private notifyStateChange(sessionId: string, newState: DebugSessionInfo['state'], info: DebugSessionInfo) {
+    const callbacks = this.stateChangeCallbacks.get(sessionId);
+    if (callbacks) {
+      for (const callback of callbacks) {
+        callback(sessionId, newState, info);
+      }
+    }
+  }
+
+  private registerStateChangeCallback(sessionId: string, callback: StateChangeCallback): void {
+    let callbacks = this.stateChangeCallbacks.get(sessionId);
+    if (!callbacks) {
+      callbacks = [];
+      this.stateChangeCallbacks.set(sessionId, callbacks);
+    }
+    callbacks.push(callback);
+  }
+
+  private unregisterStateChangeCallback(sessionId: string, callback: StateChangeCallback): void {
+    const callbacks = this.stateChangeCallbacks.get(sessionId);
+    if (callbacks) {
+      const index = callbacks.indexOf(callback);
+      if (index !== -1) {
+        callbacks.splice(index, 1);
+      }
+      if (callbacks.length === 0) {
+        this.stateChangeCallbacks.delete(sessionId);
+      }
+    }
+  }
+
+  private getDefaultAwaitTimeout(): number {
+    const config = vscode.workspace.getConfiguration('ignition-mcp');
+    return config.get<number>('awaitTimeout', 300000);
+  }
+
+  async awaitStateChange(sessionId?: string, timeoutMs?: number): Promise<AwaitStateChangeResult> {
+    const targetId = sessionId || vscode.debug.activeDebugSession?.id;
+    if (!targetId) {
+      return { success: false, error: 'No active debug session' };
+    }
+    const info = this.sessions.get(targetId);
+    if (!info) {
+      return { success: false, sessionId: targetId, error: 'Session not found' };
+    }
+    if (info.state === 'terminated') {
+      return {
+        success: true,
+        sessionId: targetId,
+        previousState: 'terminated',
+        currentState: 'terminated',
+        terminated: true
+      };
+    }
+    const timeout = timeoutMs ?? this.getDefaultAwaitTimeout();
+    const previousState = info.state;
+    return new Promise((resolve) => {
+      let resolved = false;
+      let timeoutHandle: NodeJS.Timeout | undefined;
+      const callback: StateChangeCallback = (_sid, newState, updatedInfo) => {
+        if (resolved) return;
+        resolved = true;
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+        }
+        this.unregisterStateChangeCallback(targetId, callback);
+        resolve({
+          success: true,
+          sessionId: targetId,
+          previousState,
+          currentState: newState,
+          stopReason: updatedInfo.stopReason,
+          exceptionInfo: updatedInfo.exceptionInfo,
+          terminated: newState === 'terminated'
+        });
+      };
+      this.registerStateChangeCallback(targetId, callback);
+      timeoutHandle = setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
+        this.unregisterStateChangeCallback(targetId, callback);
+        resolve({
+          success: false,
+          sessionId: targetId,
+          previousState,
+          currentState: info.state,
+          error: `Await timed out after ${timeout}ms (no state change)`
+        });
+      }, timeout);
+    });
   }
 
   private captureOutput(sessionId: string, body: Record<string, unknown>) {
@@ -418,9 +528,13 @@ export class LaunchManager implements vscode.Disposable {
   private onSessionTerminated(session: vscode.DebugSession) {
     const info = this.sessions.get(session.id);
     if (info) {
+      const previousState = info.state;
       info.status = 'terminated';
       info.state = 'terminated';
       info.endTime = Date.now();
+      if (previousState !== 'terminated') {
+        this.notifyStateChange(session.id, 'terminated', info);
+      }
     }
     console.log(`Debug session terminated: ${session.name} (${session.id})`);
   }
@@ -691,5 +805,6 @@ export class LaunchManager implements vscode.Disposable {
     this.outputLimits.clear();
     this.pendingOutputLimits.clear();
     this.pendingConsoleOverrides.clear();
+    this.stateChangeCallbacks.clear();
   }
 }

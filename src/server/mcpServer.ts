@@ -119,6 +119,24 @@ export class MCPServer {
       }
     );
     this.mcpServer.tool(
+      'await_task',
+      'Wait for a running task to complete. Returns when the task finishes (completed, failed, or cancelled) or times out.',
+      {
+        executionId: z.string().describe('The execution ID returned when the task was started'),
+        timeoutMs: z.number().optional().describe('Timeout in milliseconds (default: 5 minutes from ignition-mcp.awaitTimeout setting)')
+      },
+      async ({ executionId, timeoutMs }) => {
+        const result = await this.taskManager.awaitTask(executionId, timeoutMs);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify(result, null, 2)
+          }],
+          isError: !result.success
+        };
+      }
+    );
+    this.mcpServer.tool(
       'list_launch_configs',
       'List all available VS Code launch configurations from the workspace',
       {},
@@ -292,6 +310,24 @@ export class MCPServer {
             type: 'text' as const,
             text: JSON.stringify(result, null, 2)
           }]
+        };
+      }
+    );
+    this.mcpServer.tool(
+      'await_debug_event',
+      'Wait for a debug session state change. Returns when the session pauses (breakpoint, exception, step), resumes, or terminates. Use in a loop to monitor session lifecycle.',
+      {
+        sessionId: z.string().optional().describe('The session ID (omit to use the active session)'),
+        timeoutMs: z.number().optional().describe('Timeout in milliseconds (default: 5 minutes from ignition-mcp.awaitTimeout setting)')
+      },
+      async ({ sessionId, timeoutMs }) => {
+        const result = await this.launchManager.awaitStateChange(sessionId, timeoutMs);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify(result, null, 2)
+          }],
+          isError: !result.success
         };
       }
     );
@@ -675,14 +711,9 @@ export class MCPServer {
   }
 
   async start(): Promise<void> {
-    await this.registerTools();
-    // Create the streamable HTTP transport
-    this.transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => `session-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    });
-    // Connect the MCP server to the transport
-    await this.mcpServer.connect(this.transport);
-    return new Promise((resolve, reject) => {
+    // Start HTTP server listening FIRST, so the port is available immediately
+    // MCP requests will get 503 until tools are registered and transport is connected
+    await new Promise<void>((resolve, reject) => {
       this.server = http.createServer(async (req, res) => {
         const url = new URL(req.url || '/', `http://localhost:${this.port}`);
         this.log(`HTTP ${req.method} ${url.pathname}`);
@@ -697,8 +728,9 @@ export class MCPServer {
         if (url.pathname === '/mcp') {
           await this.handleMcp(req, res);
         } else if (url.pathname === '/health' && req.method === 'GET') {
+          const status = this.transport ? 'ok' : 'initializing';
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ status: 'ok', server: 'ignition-mcp' }));
+          res.end(JSON.stringify({ status, server: 'ignition-mcp' }));
         } else if (url.pathname === '/shutdown' && req.method === 'POST') {
           await this.handleShutdown(req, res);
         } else {
@@ -715,13 +747,25 @@ export class MCPServer {
         resolve();
       });
     });
+    // Register tools - this can take a few seconds due to task discovery
+    // Must happen BEFORE connecting to transport (SDK requirement)
+    await this.registerTools();
+    // Create the streamable HTTP transport and connect
+    this.transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => `session-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    });
+    await this.mcpServer.connect(this.transport);
+    this.log('MCP transport connected, ready for requests');
   }
 
   private async handleMcp(req: http.IncomingMessage, res: http.ServerResponse) {
     if (!this.transport) {
-      this.log('MCP request failed: transport not initialized');
-      res.writeHead(500);
-      res.end('Transport not initialized');
+      this.log('MCP request received while initializing - returning 503');
+      res.writeHead(503, {
+        'Content-Type': 'application/json',
+        'Retry-After': '2'
+      });
+      res.end(JSON.stringify({ error: 'Server initializing, please retry' }));
       return;
     }
     const startTime = Date.now();
