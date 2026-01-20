@@ -300,7 +300,8 @@ export class MCPServer {
   private async registerTaskTools() {
     const tasks = await this.taskManager.listTasks();
     for (const task of tasks) {
-      this.registerTaskTool(task);
+      const allInputs = await this.taskManager.collectAllInputs(task.name);
+      this.registerTaskTool(task, allInputs);
     }
     this.log(`Registered ${tasks.length} task tools`);
   }
@@ -366,12 +367,12 @@ export class MCPServer {
     return exitCode !== 0;
   }
 
-  private registerTaskTool(task: TaskInfo) {
+  private registerTaskTool(task: TaskInfo, allInputs: InputDefinition[]) {
     const toolName = this.sanitizeToolName(task.name, 'task_');
     const isBackground = task.isBackground;
-    const description = this.buildTaskDescription(task);
-    const hasInputs = task.inputs && task.inputs.length > 0;
-    const inputSchema = hasInputs ? this.buildInputSchema(task.inputs!) : {};
+    const description = this.buildTaskDescription(task, allInputs);
+    const hasInputs = allInputs.length > 0;
+    const inputSchema = hasInputs ? this.buildInputSchema(allInputs) : {};
     const returnOutputSetting = task.mcpOptions?.returnOutput;
     this.mcpServer.tool(
       toolName,
@@ -381,7 +382,7 @@ export class MCPServer {
         let inputValues: Record<string, string> | undefined;
         let userWillBePrompted = false;
         if (hasInputs) {
-          const resolved = this.resolveInputValues(task.inputs!, params);
+          const resolved = this.resolveInputValues(allInputs, params);
           if (resolved.complete) {
             inputValues = resolved.values;
           } else {
@@ -479,7 +480,7 @@ export class MCPServer {
     );
   }
 
-  private buildTaskDescription(task: TaskInfo): string {
+  private buildTaskDescription(task: TaskInfo, allInputs: InputDefinition[]): string {
     const parts: string[] = [];
     parts.push(`Run VS Code task "${task.name}"`);
     if (task.detail) {
@@ -494,8 +495,11 @@ export class MCPServer {
     if (task.mcpOptions?.interactive) {
       parts.push('[INTERACTIVE: runs in native terminal for user input, output not captured]');
     }
-    if (task.inputs && task.inputs.length > 0) {
-      const inputNames = task.inputs.map(i => i.id).join(', ');
+    if (task.dependsOn && task.dependsOn.length > 0) {
+      parts.push(`[depends on: ${task.dependsOn.join(', ')}]`);
+    }
+    if (allInputs.length > 0) {
+      const inputNames = allInputs.map(i => i.id).join(', ');
       parts.push(`Inputs: ${inputNames} (all optional - omit any to prompt user)`);
     }
     return parts.join(' ');
@@ -504,16 +508,40 @@ export class MCPServer {
   private async registerLaunchTools() {
     const configs = await this.launchManager.listLaunchConfigs();
     for (const config of configs) {
-      this.registerLaunchTool(config);
+      const allInputs = await this.collectLaunchInputs(config);
+      this.registerLaunchTool(config, allInputs);
     }
     this.log(`Registered ${configs.length} launch tools`);
   }
 
-  private registerLaunchTool(config: LaunchInfo) {
+  private async collectLaunchInputs(config: LaunchInfo): Promise<InputDefinition[]> {
+    const allInputs: InputDefinition[] = [];
+    const seenIds = new Set<string>();
+    if (config.preLaunchTask) {
+      const taskInputs = await this.taskManager.collectAllInputs(config.preLaunchTask);
+      for (const input of taskInputs) {
+        if (!seenIds.has(input.id)) {
+          seenIds.add(input.id);
+          allInputs.push(input);
+        }
+      }
+    }
+    if (config.inputs) {
+      for (const input of config.inputs) {
+        if (!seenIds.has(input.id)) {
+          seenIds.add(input.id);
+          allInputs.push(input);
+        }
+      }
+    }
+    return allInputs;
+  }
+
+  private registerLaunchTool(config: LaunchInfo, allInputs: InputDefinition[]) {
     const toolName = this.sanitizeToolName(config.name, 'launch_');
-    const description = this.buildLaunchDescription(config);
-    const hasInputs = config.inputs && config.inputs.length > 0;
-    const inputSchema = hasInputs ? this.buildInputSchema(config.inputs!) : {};
+    const description = this.buildLaunchDescription(config, allInputs);
+    const hasInputs = allInputs.length > 0;
+    const inputSchema = hasInputs ? this.buildInputSchema(allInputs) : {};
     this.mcpServer.tool(
       toolName,
       description,
@@ -522,7 +550,7 @@ export class MCPServer {
         let inputValues: Record<string, string> | undefined;
         let userWillBePrompted = false;
         if (hasInputs) {
-          const resolved = this.resolveInputValues(config.inputs!, params);
+          const resolved = this.resolveInputValues(allInputs, params);
           if (resolved.complete) {
             inputValues = resolved.values;
           } else {
@@ -567,7 +595,7 @@ export class MCPServer {
     );
   }
 
-  private buildLaunchDescription(config: LaunchInfo): string {
+  private buildLaunchDescription(config: LaunchInfo, allInputs: InputDefinition[]): string {
     const parts: string[] = [];
     parts.push(`Start VS Code debug session "${config.name}"`);
     parts.push(`[type: ${config.type}, request: ${config.request}]`);
@@ -575,8 +603,8 @@ export class MCPServer {
       parts.push(`(runs "${config.preLaunchTask}" first)`);
     }
     parts.push('(debug sessions are long-running, returns immediately)');
-    if (config.inputs && config.inputs.length > 0) {
-      const inputNames = config.inputs.map(i => i.id).join(', ');
+    if (allInputs.length > 0) {
+      const inputNames = allInputs.map(i => i.id).join(', ');
       parts.push(`Inputs: ${inputNames} (all optional - omit any to prompt user)`);
     }
     return parts.join(' ');

@@ -33,6 +33,7 @@ export interface TaskInfo {
   inputs?: TaskInputDefinition[];
   rawCommand?: string;
   mcpOptions?: McpOptions;
+  dependsOn?: string[];
 }
 
 export interface TaskExecutionInfo {
@@ -211,6 +212,10 @@ export class TaskManager implements vscode.Disposable {
           this.log(`Execution options: ${JSON.stringify((exec as { options?: unknown }).options)}`);
         }
       }
+      const dependsOnRaw = rawTaskEntry?.dependsOn;
+      const dependsOn = dependsOnRaw 
+        ? (Array.isArray(dependsOnRaw) ? dependsOnRaw : [dependsOnRaw])
+        : undefined;
       return {
         name: task.name,
         source: task.source,
@@ -220,7 +225,8 @@ export class TaskManager implements vscode.Disposable {
         detail: task.detail,
         inputs,
         rawCommand: usedInputIds.length > 0 ? rawCommand : undefined,
-        mcpOptions
+        mcpOptions,
+        dependsOn
       };
     });
   }
@@ -230,9 +236,47 @@ export class TaskManager implements vscode.Disposable {
     return tasks.find((t) => t.name === taskName);
   }
 
+  async getTaskByName(taskName: string): Promise<TaskInfo | undefined> {
+    const tasks = await this.listTasks();
+    return tasks.find((t) => t.name === taskName);
+  }
+
+  async collectAllInputs(taskName: string, visited: Set<string> = new Set()): Promise<TaskInputDefinition[]> {
+    if (visited.has(taskName)) {
+      return [];
+    }
+    visited.add(taskName);
+    const task = await this.getTaskByName(taskName);
+    if (!task) {
+      return [];
+    }
+    const allInputs: TaskInputDefinition[] = [];
+    const seenIds = new Set<string>();
+    if (task.dependsOn) {
+      for (const depName of task.dependsOn) {
+        const depInputs = await this.collectAllInputs(depName, visited);
+        for (const input of depInputs) {
+          if (!seenIds.has(input.id)) {
+            seenIds.add(input.id);
+            allInputs.push(input);
+          }
+        }
+      }
+    }
+    if (task.inputs) {
+      for (const input of task.inputs) {
+        if (!seenIds.has(input.id)) {
+          seenIds.add(input.id);
+          allInputs.push(input);
+        }
+      }
+    }
+    return allInputs;
+  }
+
   private readTasksJson(): { 
     inputs?: TaskInputDefinition[]; 
-    tasks?: Array<{ label?: string; options?: { mcp?: McpOptions } }> 
+    tasks?: Array<{ label?: string; options?: { mcp?: McpOptions }; dependsOn?: string | string[] }> 
   } | null {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
