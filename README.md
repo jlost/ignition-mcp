@@ -129,6 +129,15 @@ Tasks support MCP options inside the `options` block. Launch configurations use 
 | `interactive` | `false` | (Task) Run in native terminal for sudo/interactive input |
 | `preserveConsole` | `false` | (Launch) Keep original console setting |
 
+### ⏱️ Extension Settings
+
+Configure in VS Code settings (`ignition-mcp.*`):
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `outputLimit` | `20480` | Default max characters for output capture (overridable per-task/launch) |
+| `awaitTimeout` | `300000` | Default timeout in ms for `await_task` and `await_debug_event` (5 minutes) |
+
 ### 📋 Task Utility Tools
 
 | Tool | Description | Parameters |
@@ -137,6 +146,7 @@ Tasks support MCP options inside the `options` block. Launch configurations use 
 | `get_task_status` | Get status of a task execution (running/completed/failed/cancelled) | `executionId` |
 | `get_task_output` | Get captured terminal output from a task | `executionId` |
 | `cancel_task` | Cancel a running task | `executionId` |
+| `await_task` | Wait for a task to complete (or timeout) | `executionId`, `timeoutMs` (optional) |
 
 ### 🎯 Debug Utility Tools
 
@@ -147,6 +157,7 @@ Tasks support MCP options inside the `options` block. Launch configurations use 
 | `get_debug_output` | Get captured debug console output | `sessionId` (optional) |
 | `get_stack_trace` | Get the call stack from a paused session | `sessionId` (optional) |
 | `stop_debug_session` | Stop a debug session | `sessionId` (optional) |
+| `await_debug_event` | Wait for state change (breakpoint, exception, termination) | `sessionId` (optional), `timeoutMs` (optional) |
 
 ### 🔴 Breakpoint Tools
 
@@ -224,8 +235,12 @@ Another VS Code window with the same workspace is already running the MCP server
 ### Tasks not appearing
 
 - Ensure tasks are defined in `.vscode/tasks.json`
-- Reload the VS Code window
 - Check that task definitions have no syntax errors
+- Run **Ignition MCP: Restart Server** from the Command Palette to refresh the tool list
+- In Cursor: Open **Cursor Settings > MCP** and verify the server is enabled (toggle it off/on to reconnect)
+- In VS Code: Check equivalent MCP settings in your Copilot or MCP client configuration
+- Check the status bar icon - click it to see server status and options
+- Reload the VS Code window as a last resort
 
 ## 📄 License
 

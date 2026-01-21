@@ -370,11 +370,12 @@ export class MCPServer {
         zodField = z.string();
       }
       if (input.default) {
-        descParts.push(`Default: ${input.default}`);
+        descParts.push(`If omitted, user prompted with default "${input.default}".`);
+      } else {
+        descParts.push('If omitted, user will be prompted.');
       }
-      descParts.push('(optional - omit to prompt user)');
       if (descParts.length > 0) {
-        zodField = zodField.describe(descParts.join('. '));
+        zodField = zodField.describe(descParts.join(' '));
       }
       schema[input.id] = zodField.optional();
     }
@@ -412,7 +413,7 @@ export class MCPServer {
   private registerTaskTool(task: TaskInfo, allInputs: InputDefinition[]) {
     const toolName = this.sanitizeToolName(task.name, 'task_');
     const isBackground = task.isBackground;
-    const description = this.buildTaskDescription(task, allInputs);
+    const description = this.buildTaskDescription(task);
     const hasInputs = allInputs.length > 0;
     const inputSchema = hasInputs ? this.buildInputSchema(allInputs) : {};
     const returnOutputSetting = task.mcpOptions?.returnOutput;
@@ -522,7 +523,7 @@ export class MCPServer {
     );
   }
 
-  private buildTaskDescription(task: TaskInfo, allInputs: InputDefinition[]): string {
+  private buildTaskDescription(task: TaskInfo): string {
     const parts: string[] = [];
     parts.push(`Run VS Code task "${task.name}"`);
     if (task.detail) {
@@ -539,10 +540,6 @@ export class MCPServer {
     }
     if (task.dependsOn && task.dependsOn.length > 0) {
       parts.push(`[depends on: ${task.dependsOn.join(', ')}]`);
-    }
-    if (allInputs.length > 0) {
-      const inputNames = allInputs.map(i => i.id).join(', ');
-      parts.push(`Inputs: ${inputNames} (all optional - omit any to prompt user)`);
     }
     return parts.join(' ');
   }
@@ -581,7 +578,7 @@ export class MCPServer {
 
   private registerLaunchTool(config: LaunchInfo, allInputs: InputDefinition[]) {
     const toolName = this.sanitizeToolName(config.name, 'launch_');
-    const description = this.buildLaunchDescription(config, allInputs);
+    const description = this.buildLaunchDescription(config);
     const hasInputs = allInputs.length > 0;
     const inputSchema = hasInputs ? this.buildInputSchema(allInputs) : {};
     this.mcpServer.tool(
@@ -637,7 +634,7 @@ export class MCPServer {
     );
   }
 
-  private buildLaunchDescription(config: LaunchInfo, allInputs: InputDefinition[]): string {
+  private buildLaunchDescription(config: LaunchInfo): string {
     const raw = config.rawConfig || {};
     const parts: string[] = [];
     parts.push(this.buildLaunchPurpose(config, raw));
@@ -647,10 +644,6 @@ export class MCPServer {
     }
     if (config.preLaunchTask) {
       parts.push(`Runs "${config.preLaunchTask}" task first.`);
-    }
-    if (allInputs.length > 0) {
-      const inputNames = allInputs.map(i => i.id).join(', ');
-      parts.push(`Inputs: ${inputNames}.`);
     }
     parts.push('(starts and returns immediately)');
     return parts.join(' ');
