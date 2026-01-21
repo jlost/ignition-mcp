@@ -655,13 +655,46 @@ export class TaskManager implements vscode.Disposable {
   }
 
   private onTaskStarted(e: vscode.TaskStartEvent) {
-    console.log(`Task started: ${e.execution.task.name}`);
+    this.log(`Task started: ${e.execution.task.name}`);
+  }
+
+  /**
+   * Find execution ID for a task event.
+   * VS Code may return different object references for the same execution,
+   * so we fall back to matching by task name for running executions.
+   */
+  private findExecutionId(execution: vscode.TaskExecution): string | undefined {
+    // First try direct object lookup
+    const directId = this.executionToId.get(execution);
+    if (directId) {
+      return directId;
+    }
+    // Fall back to object identity check in activeExecutions
+    for (const [id, exec] of this.activeExecutions) {
+      if (exec === execution) {
+        return id;
+      }
+    }
+    // Final fallback: match by task name for running interactive executions
+    // This handles cases where VS Code returns different object references
+    const taskName = execution.task.name;
+    for (const [id, info] of this.executions) {
+      if (info.taskName === taskName && 
+          info.status === 'running' && 
+          this.interactiveExecutionIds.has(id)) {
+        this.log(`Matched task "${taskName}" by name (object identity mismatch)`);
+        return id;
+      }
+    }
+    return undefined;
   }
 
   private onTaskEnded(e: vscode.TaskEndEvent) {
     const taskName = e.execution.task.name;
-    const execId = this.executionToId.get(e.execution);
+    this.log(`onTaskEnded fired for "${taskName}"`);
+    const execId = this.findExecutionId(e.execution);
     if (execId) {
+      this.log(`Found execution ID ${execId} for ended task "${taskName}"`);
       this.activeExecutions.delete(execId);
       this.executionToId.delete(e.execution);
       this.interactiveExecutionIds.delete(execId);
@@ -669,55 +702,34 @@ export class TaskManager implements vscode.Disposable {
       if (info && info.status === 'running') {
         info.status = 'completed';
         info.endTime = Date.now();
+        this.log(`Updated status to 'completed' for execution ${execId}`);
       }
     } else {
-      for (const [id, exec] of this.activeExecutions) {
-        if (exec === e.execution) {
-          this.activeExecutions.delete(id);
-          const info = this.executions.get(id);
-          if (info && info.status === 'running') {
-            info.status = 'completed';
-            info.endTime = Date.now();
-          }
-          break;
-        }
-      }
+      this.log(`No execution ID found for ended task "${taskName}" (may be external task)`);
     }
-    console.log(`Task ended: ${taskName}`);
   }
 
   private onTaskProcessEnded(e: vscode.TaskProcessEndEvent) {
     const taskName = e.execution.task.name;
-    const execId = this.executionToId.get(e.execution);
+    this.log(`onTaskProcessEnded fired for "${taskName}" with exit code ${e.exitCode}`);
+    const execId = this.findExecutionId(e.execution);
     if (execId) {
+      this.log(`Found execution ID ${execId} for process-ended task "${taskName}"`);
       const info = this.executions.get(execId);
       if (info) {
         info.exitCode = e.exitCode;
         if (info.status === 'running') {
           info.status = e.exitCode === 0 ? 'completed' : 'failed';
           info.endTime = Date.now();
+          this.log(`Updated status to '${info.status}' with exit code ${e.exitCode} for execution ${execId}`);
         }
       }
       this.activeExecutions.delete(execId);
       this.executionToId.delete(e.execution);
       this.interactiveExecutionIds.delete(execId);
     } else {
-      for (const [id, exec] of this.activeExecutions) {
-        if (exec === e.execution) {
-          const info = this.executions.get(id);
-          if (info) {
-            info.exitCode = e.exitCode;
-            if (info.status === 'running') {
-              info.status = e.exitCode === 0 ? 'completed' : 'failed';
-              info.endTime = Date.now();
-            }
-          }
-          this.activeExecutions.delete(id);
-          break;
-        }
-      }
+      this.log(`No execution ID found for process-ended task "${taskName}" (may be external task)`);
     }
-    console.log(`Task process ended: ${taskName} with exit code ${e.exitCode}`);
   }
 
   private generateExecutionId(): string {
