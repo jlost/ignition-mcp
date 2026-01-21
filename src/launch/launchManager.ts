@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { TaskManager } from '../tasks/taskManager';
 
 export interface PickStringOption {
   label: string;
@@ -170,6 +171,7 @@ export class LaunchManager implements vscode.Disposable {
   private pendingConsoleOverrides: Map<string, boolean> = new Map();
   private stateChangeCallbacks: Map<string, StateChangeCallback[]> = new Map();
   private disposables: vscode.Disposable[] = [];
+  private taskManager: TaskManager | null = null;
 
   constructor() {
     this.disposables.push(
@@ -177,6 +179,10 @@ export class LaunchManager implements vscode.Disposable {
       vscode.debug.onDidTerminateDebugSession((session) => this.onSessionTerminated(session))
     );
     this.registerDebugAdapterTracker();
+  }
+
+  setTaskManager(taskManager: TaskManager): void {
+    this.taskManager = taskManager;
   }
 
   private getDefaultOutputLimit(): number | null {
@@ -431,6 +437,32 @@ export class LaunchManager implements vscode.Disposable {
         debugConfig = this.substituteInputs(config.rawConfig, inputValues) as vscode.DebugConfiguration;
       } else {
         debugConfig = { ...config.rawConfig } as vscode.DebugConfiguration;
+      }
+      // If there's a preLaunchTask and we have input values, run it through TaskManager
+      // to ensure input substitution works, then remove it from the config so VS Code
+      // doesn't try to run it again (which would prompt for inputs).
+      // 
+      // Skip this for:
+      // - Tasks with dependencies (TaskManager doesn't handle dependsOn)
+      // - Background tasks (they never exit, so runTaskAndWait would timeout)
+      if (config.preLaunchTask && inputValues && Object.keys(inputValues).length > 0 && this.taskManager) {
+        const taskInfo = await this.taskManager.getTaskByName(config.preLaunchTask);
+        const hasDependencies = taskInfo?.dependsOn && taskInfo.dependsOn.length > 0;
+        const isBackground = taskInfo?.isBackground === true;
+        
+        if (!hasDependencies && !isBackground) {
+          const taskResult = await this.taskManager.runTaskAndWait(config.preLaunchTask, inputValues);
+          if (!taskResult.success) {
+            return { 
+              success: false, 
+              error: `preLaunchTask "${config.preLaunchTask}" failed: ${taskResult.error || `exit code ${taskResult.exitCode}`}` 
+            };
+          }
+          // Remove preLaunchTask from config since we already ran it
+          delete debugConfig.preLaunchTask;
+        }
+        // If hasDependencies or isBackground, let VS Code run it - user may be prompted
+        // for inputs, but VS Code will handle the complexity correctly
       }
       let consoleOverridden = false;
       const originalConsole = debugConfig.console;

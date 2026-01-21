@@ -78,6 +78,11 @@ export interface TaskAwaitResult {
   error?: string;
 }
 
+interface ShellConfig {
+  executable?: string;
+  args?: string[];
+}
+
 class OutputCapturePty implements vscode.Pseudoterminal {
   private writeEmitter = new vscode.EventEmitter<string>();
   private closeEmitter = new vscode.EventEmitter<number>();
@@ -93,15 +98,23 @@ class OutputCapturePty implements vscode.Pseudoterminal {
     private cwd: string,
     private env: NodeJS.ProcessEnv,
     onOutput: (output: string) => void,
-    onExit: (code: number) => void
+    onExit: (code: number) => void,
+    private shellConfig?: ShellConfig
   ) {
     this.onOutputCallback = onOutput;
     this.onExitCallback = onExit;
   }
 
   open(): void {
-    const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh';
-    const shellArgs = process.platform === 'win32' ? ['/c', this.command] : ['-c', this.command];
+    const defaultShell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh';
+    const defaultArgs = process.platform === 'win32' ? ['/c', this.command] : ['-c', this.command];
+    
+    const shell = this.shellConfig?.executable || defaultShell;
+    // If custom shell args provided, append command; otherwise use defaults
+    const shellArgs = this.shellConfig?.args 
+      ? [...this.shellConfig.args, this.command]
+      : defaultArgs;
+    
     this.childProcess = cp.spawn(shell, shellArgs, {
       cwd: this.cwd,
       env: this.env,
@@ -389,13 +402,38 @@ export class TaskManager implements vscode.Disposable {
         }
       }
       const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      const cwd = workspaceFolder?.uri.fsPath || process.cwd();
+      const defaultCwd = workspaceFolder?.uri.fsPath || process.cwd();
+      
+      // Extract options from ShellExecution if available
+      const exec = task.execution;
+      let taskCwd = defaultCwd;
+      let taskEnv: NodeJS.ProcessEnv = { ...process.env };
+      let shellConfig: ShellConfig | undefined;
+      
+      if (exec instanceof vscode.ShellExecution && exec.options) {
+        // Use task's cwd if specified, resolving variables
+        if (exec.options.cwd) {
+          taskCwd = this.resolveVariables(exec.options.cwd, workspaceFolder);
+        }
+        // Merge task's env with process.env (task env takes precedence)
+        if (exec.options.env) {
+          taskEnv = { ...process.env, ...exec.options.env };
+        }
+        // Extract shell configuration
+        if (exec.options.executable) {
+          shellConfig = {
+            executable: exec.options.executable,
+            args: exec.options.shellArgs
+          };
+        }
+      }
+      
       const resolvedCommand = this.resolveVariables(rawCommand, workspaceFolder);
       const customExec = new vscode.CustomExecution(async () => {
         return new OutputCapturePty(
           resolvedCommand,
-          cwd,
-          { ...process.env },
+          taskCwd,
+          taskEnv,
           (output) => { this.outputs.set(executionId, this.truncateOutput(output, executionId)); },
           (exitCode) => {
             const info = this.executions.get(executionId);
@@ -405,7 +443,8 @@ export class TaskManager implements vscode.Disposable {
               info.endTime = Date.now();
             }
             this.activeExecutions.delete(executionId);
-          }
+          },
+          shellConfig
         );
       });
       const captureTask = new vscode.Task(
@@ -441,7 +480,12 @@ export class TaskManager implements vscode.Disposable {
         }
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         resolvedCommand = this.resolveVariables(resolvedCommand, workspaceFolder);
-        const shellExec = new vscode.ShellExecution(resolvedCommand);
+        
+        // Preserve original shell execution options (cwd, env, shell)
+        const originalExec = task.execution;
+        const shellOptions = originalExec instanceof vscode.ShellExecution ? originalExec.options : undefined;
+        const shellExec = new vscode.ShellExecution(resolvedCommand, shellOptions);
+        
         taskToRun = new vscode.Task(
           task.definition,
           task.scope || vscode.TaskScope.Workspace,

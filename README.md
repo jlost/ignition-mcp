@@ -242,6 +242,28 @@ Another VS Code window with the same workspace is already running the MCP server
 - Check the status bar icon - click it to see server status and options
 - Reload the VS Code window as a last resort
 
+## ⚠️ Known Limitations
+
+### Task Execution Options
+
+To capture task output, Ignition MCP runs tasks using its own process spawning rather than VS Code's native task execution. This means:
+
+- **Supported options**: `cwd`, `env`, `shell.executable`, `shell.args` are respected
+- **Not supported**: Other `ShellExecutionOptions` (like `shellQuoting`) may be ignored
+- **Future VS Code options**: New task options added by VS Code won't be automatically supported
+
+**Workaround**: For tasks that need full VS Code execution compatibility, use `"mcp": { "interactive": true }` in the task options. This runs the task in VS Code's native terminal (though output won't be captured).
+
+### Launch Configuration Inputs
+
+When a launch configuration has a `preLaunchTask` that uses input variables (`${input:...}`):
+
+- **Simple tasks**: Inputs are substituted and the task runs without prompting
+- **Background tasks** (`isBackground: true`): VS Code handles execution - user may be prompted for inputs
+- **Tasks with dependencies** (`dependsOn`): VS Code handles execution - user may be prompted for inputs
+
+This is because background tasks and task dependencies require VS Code's native task orchestration.
+
 ## 📄 License
 
 MIT

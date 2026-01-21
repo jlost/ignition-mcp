@@ -28,6 +28,7 @@ export async function activate(context: vscode.ExtensionContext) {
   taskManager = new TaskManager();
   taskManager.setOutputChannel(outputChannel);
   launchManager = new LaunchManager();
+  launchManager.setTaskManager(taskManager);
   context.subscriptions.push(taskManager);
   context.subscriptions.push(launchManager);
   // Compute port based on workspace path
