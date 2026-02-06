@@ -470,8 +470,9 @@ export class TaskManager implements vscode.Disposable {
     inputValues?: Record<string, string>
   ): Promise<TaskRunResult> {
     try {
-      let taskToRun = task;
+      let taskToRun: vscode.Task;
       if (inputValues && Object.keys(inputValues).length > 0) {
+        // Need to substitute input values - create a modified task
         const rawCommand = this.getRawCommand(task);
         let resolvedCommand = rawCommand;
         for (const [inputId, value] of Object.entries(inputValues)) {
@@ -500,20 +501,10 @@ export class TaskManager implements vscode.Disposable {
           focus: true
         };
       } else {
-        const shellExec = task.execution;
-        taskToRun = new vscode.Task(
-          task.definition,
-          task.scope || vscode.TaskScope.Workspace,
-          task.name,
-          task.source,
-          shellExec,
-          task.problemMatchers
-        );
-        taskToRun.presentationOptions = {
-          ...task.presentationOptions,
-          reveal: vscode.TaskRevealKind.Always,
-          focus: true
-        };
+        // No input substitution needed - use the original task directly
+        // This preserves VS Code's internal task definition and avoids
+        // issues where recreating the task loses the command
+        taskToRun = task;
       }
       this.interactiveExecutionIds.add(executionId);
       const execution = await vscode.tasks.executeTask(taskToRun);
@@ -739,9 +730,11 @@ export class TaskManager implements vscode.Disposable {
     const execId = this.findExecutionId(e.execution);
     if (execId) {
       this.log(`Found execution ID ${execId} for ended task "${taskName}"`);
+      // Clean up tracking structures (only here, not in onTaskProcessEnded)
       this.activeExecutions.delete(execId);
       this.executionToId.delete(e.execution);
       this.interactiveExecutionIds.delete(execId);
+      // Update status if not already set by onTaskProcessEnded
       const info = this.executions.get(execId);
       if (info && info.status === 'running') {
         info.status = 'completed';
@@ -759,6 +752,7 @@ export class TaskManager implements vscode.Disposable {
     const execId = this.findExecutionId(e.execution);
     if (execId) {
       this.log(`Found execution ID ${execId} for process-ended task "${taskName}"`);
+      // Only update status/exitCode here - cleanup happens in onTaskEnded
       const info = this.executions.get(execId);
       if (info) {
         info.exitCode = e.exitCode;
@@ -768,9 +762,7 @@ export class TaskManager implements vscode.Disposable {
           this.log(`Updated status to '${info.status}' with exit code ${e.exitCode} for execution ${execId}`);
         }
       }
-      this.activeExecutions.delete(execId);
-      this.executionToId.delete(e.execution);
-      this.interactiveExecutionIds.delete(execId);
+      // Don't clean up here - let onTaskEnded do it to avoid race condition
     } else {
       this.log(`No execution ID found for process-ended task "${taskName}" (may be external task)`);
     }

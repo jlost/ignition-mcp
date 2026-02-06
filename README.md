@@ -264,6 +264,30 @@ When a launch configuration has a `preLaunchTask` that uses input variables (`${
 
 This is because background tasks and task dependencies require VS Code's native task orchestration.
 
+### Go Debug Output Capture
+
+The Go debug adapter (Delve) writes test output directly to stdout/stderr rather than routing it through the Debug Adapter Protocol. When Ignition MCP overrides `console: "integratedTerminal"` to `"internalConsole"` for output capture, this output is lost because there's no terminal to receive it.
+
+**Symptoms**: Debug session runs successfully but no output appears in the debug console or in `get_debug_output` results, even though running the same configuration manually shows output.
+
+**Workaround**: Disable the console override for Go launch configurations:
+
+```json
+{
+  "name": "Run Tests",
+  "type": "go",
+  "request": "launch",
+  "mode": "test",
+  "program": "${workspaceFolder}/...",
+  "console": "integratedTerminal",
+  "mcp": {
+    "preserveConsole": true
+  }
+}
+```
+
+With `preserveConsole: true`, the terminal is created and output is visible, but Ignition MCP cannot capture it programmatically.
+
 ## 📄 License
 
 MIT

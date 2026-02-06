@@ -229,7 +229,6 @@ export class LaunchManager implements vscode.Disposable {
 
   private handleDebugEvent(sessionId: string, event: string | undefined, body: Record<string, unknown> | undefined) {
     const info = this.sessions.get(sessionId);
-    if (!body) return;
     const previousState = info?.state;
     switch (event) {
       case 'initialized':
@@ -237,11 +236,19 @@ export class LaunchManager implements vscode.Disposable {
           info.state = 'running';
         }
         break;
+      case 'exited':
+      case 'terminated':
+        if (info) {
+          info.state = 'terminated';
+        }
+        break;
       case 'output':
-        this.captureOutput(sessionId, body);
+        if (body) {
+          this.captureOutput(sessionId, body);
+        }
         break;
       case 'stopped':
-        if (info) {
+        if (info && body) {
           info.state = 'paused';
           info.stopReason = body.reason as string | undefined;
           info.stoppedThreadId = body.threadId as number | undefined;
@@ -258,12 +265,6 @@ export class LaunchManager implements vscode.Disposable {
           info.state = 'running';
           info.stopReason = undefined;
           info.stoppedThreadId = undefined;
-        }
-        break;
-      case 'exited':
-      case 'terminated':
-        if (info) {
-          info.state = 'terminated';
         }
         break;
     }

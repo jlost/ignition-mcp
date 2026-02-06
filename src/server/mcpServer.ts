@@ -413,6 +413,7 @@ export class MCPServer {
   private registerTaskTool(task: TaskInfo, allInputs: InputDefinition[]) {
     const toolName = this.sanitizeToolName(task.name, 'task_');
     const isBackground = task.isBackground;
+    const isInteractive = task.mcpOptions?.interactive ?? false;
     const description = this.buildTaskDescription(task);
     const hasInputs = allInputs.length > 0;
     const inputSchema = hasInputs ? this.buildInputSchema(allInputs) : {};
@@ -433,7 +434,9 @@ export class MCPServer {
             userWillBePrompted = true;
           }
         }
-        if (isBackground) {
+        // Background tasks and interactive tasks both return immediately
+        // Interactive tasks can't capture output and may run for arbitrary durations
+        if (isBackground || isInteractive) {
           const result = await this.taskManager.runTask(task.name, inputValues, task.mcpOptions);
           if (!result.success) {
             return {
@@ -446,12 +449,18 @@ export class MCPServer {
           }
           const response: Record<string, unknown> = {
             status: 'started',
-            message: `Background task "${task.name}" started. Use await_task to wait for completion.`,
+            message: isInteractive 
+              ? `Interactive task "${task.name}" started. Use await_task to wait for completion.`
+              : `Background task "${task.name}" started. Use await_task to wait for completion.`,
             executionId: result.executionId,
-            isBackground: true
+            isBackground: isBackground,
+            isInteractive: isInteractive
           };
           if (userWillBePrompted) {
             response.note = 'User will be prompted for missing input values in VS Code.';
+          }
+          if (isInteractive) {
+            response.outputNote = 'Output not captured in interactive mode.';
           }
           return {
             content: [{
@@ -617,6 +626,10 @@ export class MCPServer {
           response.consoleOverridden = true;
           response.consoleNote = 'Console mode was changed to internalConsole for output capture.';
         }
+        if (config.mcpOptions?.preserveConsole) {
+          response.outputNotCaptured = true;
+          response.outputNote = 'Output runs in terminal for human visibility. get_debug_output will not return results.';
+        }
         if (userWillBePrompted) {
           response.userPrompted = true;
           response.note = 'User will be prompted for missing input values in VS Code. Use get_debug_status to check session state.';
@@ -646,6 +659,9 @@ export class MCPServer {
       parts.push(`Runs "${config.preLaunchTask}" task first.`);
     }
     parts.push('(starts and returns immediately)');
+    if (config.mcpOptions?.preserveConsole) {
+      parts.push('[OUTPUT NOT CAPTURED: runs in terminal for human visibility]');
+    }
     return parts.join(' ');
   }
 
